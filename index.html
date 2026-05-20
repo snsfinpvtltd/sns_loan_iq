@@ -1,0 +1,2528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SNS LoanIQ CRM v4 — SNS Financial Services</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.9.0/dist/tabler-icons.min.css">
+
+<!-- ────────────────────────────────────────────────────────────── -->
+<!-- ☁  CLOUD CONFIG — edit these two values before deploying!     -->
+<!-- ────────────────────────────────────────────────────────────── -->
+<!-- See README.md for step-by-step Apps Script + OAuth setup.       -->
+<script>
+  window.CLOUD_CONFIG = {
+    // Apps Script /exec URL  →  Deploy → New deployment → Web app
+    webhook:  'https://script.google.com/macros/s/AKfycbzB71LvmjKk1U1N5Y7Bh6H5bNrYgwStPl37J5Ztf1fkCRcGZYiwzHGKat2IcRPq5d1M2Q/exec',
+    // Google OAuth Client ID →  Google Cloud Console → Credentials
+    clientId: '933428795113-mk9kh0q1vg4qt74uoune7ko4pf2bam9p.apps.googleusercontent.com',
+    // How often to poll for other users' edits (ms)
+    pollMs: 8000
+  };
+</script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="cloud-sync.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  /* ── SNS Brand: 3 exact colors from logo ── */
+  --navy:#1B2A6B;       /* navy blue — arrow/diamond mark */
+  --navy-d:#111B4A;     /* darker navy for depth */
+  --navy-mid:#243480;   /* mid navy for gradients */
+  --green:#1B6B3A;      /* forest green — swoosh + brand text */
+  --green-l:#E6F4EC;    /* light green tint */
+  --green-d:#145530;    /* deep green for hover */
+  --white:#FFFFFF;      /* brand white */
+  /* Supporting UI colors */
+  --blue:var(--navy);--blue-l:#E8EDF8;
+  --amber:#854F0B;--amber-l:#FAEEDA;
+  --red:#A32D2D;--red-l:#FCEBEB;
+  --purple:#3C3489;--purple-l:#EEEDFE;
+  --gray:#5F6368;--gray-l:#F3F4F6;
+  --border:#D8DDE8;--card:#fff;--bg:#F4F6FB;
+  --text:var(--navy);--text2:#5F6368;
+  --r:10px;--rs:7px;
+  --shadow:0 2px 12px rgba(27,42,107,0.08);
+  --shadow-md:0 4px 20px rgba(27,42,107,0.14);
+  /* Alias gold→green so old references still work */
+  --gold:var(--green);--gold-l:#4ABA72;--gold-bg:var(--green-l);--gold-border:#A8D8BC;
+}
+body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+
+/* ── TOPBAR ── */
+.shell{display:flex;flex-direction:column;min-height:100vh}
+.topbar{background:var(--navy);border-bottom:none;padding:0 20px;display:flex;align-items:center;gap:8px;height:56px;position:sticky;top:0;z-index:100;flex-wrap:wrap;box-shadow:0 2px 12px rgba(11,31,75,0.3)}
+.logo{font-size:14px;font-weight:700;color:#fff;display:flex;align-items:center;gap:10px;margin-right:14px;padding-right:14px;border-right:1px solid rgba(255,255,255,0.15);white-space:nowrap}
+.logo-icon{width:42px;height:36px;flex-shrink:0;display:flex;align-items:center}
+.logo-text{display:flex;flex-direction:column;line-height:1.2}
+.logo-text strong{font-size:13px;font-weight:700;color:#fff}
+.logo-text small{font-size:10px;color:rgba(255,255,255,0.5);letter-spacing:0.05em}
+.nav-btn{font-size:12px;font-weight:500;padding:6px 13px;border-radius:var(--rs);border:1px solid rgba(255,255,255,0.15);background:transparent;color:rgba(255,255,255,0.7);cursor:pointer;transition:all .12s;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.nav-btn:hover{background:rgba(255,255,255,0.1);color:#fff}
+.nav-btn.active{background:var(--green);color:#fff;border-color:var(--green);font-weight:700}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,0.6)}
+#user-disp{font-weight:700;color:var(--gold-l)!important}
+#date-disp{color:rgba(255,255,255,0.5)!important}
+
+/* ── LAYOUT ── */
+.main{flex:1;padding:20px;max-width:1100px;margin:0 auto;width:100%}
+.page{display:none}.page.active{display:block}
+
+/* ── CARDS ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px 20px;margin-bottom:14px;box-shadow:var(--shadow)}
+.card-title{font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.09em;text-transform:uppercase;margin-bottom:12px}
+
+/* ── GRIDS ── */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.g4{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px}
+.mc{background:var(--navy);border:none;border-radius:var(--rs);padding:14px 18px}
+.mc-v{font-size:26px;font-weight:700;color:var(--gold-l)}
+.mc-l{font-size:11px;color:rgba(255,255,255,0.55);margin-top:3px}
+
+/* ── BADGES ── */
+.badge{display:inline-flex;align-items:center;font-size:10px;font-weight:700;padding:2px 9px;border-radius:99px;white-space:nowrap}
+.b-green{background:var(--green-l);color:var(--green)}
+.b-blue{background:var(--blue-l);color:var(--navy)}
+.b-amber{background:var(--amber-l);color:var(--amber)}
+.b-red{background:var(--red-l);color:var(--red)}
+.b-purple{background:var(--purple-l);color:var(--purple)}
+.b-gray{background:var(--gray-l);color:var(--gray)}
+.b-gold{background:var(--gold-bg);color:#7A5A0A;border:1px solid var(--gold-border)}
+
+/* ── TABLE ── */
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{text-align:left;padding:8px 10px;border-bottom:2px solid var(--navy);font-size:11px;font-weight:700;color:var(--navy);white-space:nowrap;background:var(--blue-l)}
+.tbl td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:var(--green-l);cursor:pointer}
+
+/* ── FORM ELEMENTS ── */
+input,select,textarea{font-family:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--rs);background:#fff;color:var(--text);width:100%;outline:none;transition:border .12s}
+input:focus,select:focus,textarea:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(200,149,42,0.12)}
+textarea{resize:vertical}
+
+/* ── BUTTONS ── */
+button{font-family:inherit;font-size:12px;font-weight:500;padding:8px 14px;border-radius:var(--rs);border:1px solid var(--border);background:#fff;color:var(--text);cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .12s;white-space:nowrap}
+button:hover{background:var(--gray-l);border-color:#bbb}
+button.primary{background:var(--navy);color:#fff;border-color:var(--navy)}
+button.primary:hover{background:var(--navy-mid)}
+button.danger{background:var(--red-l);color:var(--red);border-color:#f0c0c0}
+button:disabled{opacity:.5;cursor:not-allowed}
+
+/* ── CALL BUTTON (new) ── */
+.btn-call-now{display:inline-flex;align-items:center;gap:6px;background:var(--green);color:#fff;font-weight:700;font-size:13px;padding:9px 16px;border-radius:var(--rs);border:none;cursor:pointer;text-decoration:none;transition:all .15s;box-shadow:0 2px 8px rgba(27,107,58,0.3)}
+.btn-call-now:hover{background:var(--green-d);transform:translateY(-1px);box-shadow:0 4px 14px rgba(27,107,58,0.4)}
+.call-notice{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--green);background:var(--green-l);border:1px solid var(--gold-border);border-radius:var(--rs);padding:6px 10px;margin-bottom:10px}
+
+/* ── MISC ── */
+.avatar{border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0}
+.status-pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.prog-bg{background:#dde1e8;border-radius:99px;height:7px;overflow:hidden}
+.prog-f{height:7px;border-radius:99px}
+.bar-row{display:flex;align-items:center;gap:10px;padding:5px 0;font-size:12px}
+.bar-bg{background:#dde1e8;border-radius:99px;height:8px;flex:1;overflow:hidden}
+.bar-f{height:8px;border-radius:99px}
+.ai-box{background:var(--gold-bg);border:1px solid var(--gold-border);border-radius:var(--rs);padding:13px;font-size:12px;line-height:1.75;color:var(--text);white-space:pre-wrap;min-height:48px}
+
+/* ── MODALS ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(7,20,64,0.55);z-index:300;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal-box{background:#fff;border-radius:var(--r);padding:24px;width:90%;max-width:500px;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(11,31,75,0.25)}
+.modal-title{font-size:16px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;color:var(--navy)}
+
+/* ── LOGIN ── */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--navy) 0%,var(--navy-mid) 60%,#1b3d8a 100%)}
+.login-card{background:#fff;border:none;border-radius:16px;padding:36px 32px;width:380px;box-shadow:0 20px 60px rgba(7,20,64,0.4)}
+.login-header-bar{background:linear-gradient(135deg,var(--navy) 0%,var(--navy-mid) 100%);border-radius:12px;padding:20px;text-align:center;margin-bottom:24px;border-bottom:3px solid var(--green)}
+.user-btn{display:flex;align-items:center;gap:12px;width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:var(--rs);background:#fff;cursor:pointer;margin-bottom:8px;transition:all .12s;font-size:13px;text-align:left}
+.user-btn:hover{border-color:var(--gold);background:var(--gold-bg)}
+.user-btn.inactive-user{opacity:.45;pointer-events:none;background:#f8f8f8}
+.section-divider{font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.07em;text-transform:uppercase;margin:14px 0 8px;padding-bottom:4px;border-bottom:1px solid var(--border)}
+
+/* ── UPLOAD ZONE ── */
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px}
+.upload-zone{border:2px dashed var(--border);border-radius:var(--r);padding:28px;text-align:center;color:var(--text2);cursor:pointer;transition:all .15s}
+.upload-zone:hover{border-color:var(--gold);background:var(--gold-bg)}
+.caller-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:500;border:1px solid var(--border);background:#fff;cursor:pointer;margin:3px}
+.caller-chip.active-c{border-color:var(--navy);background:var(--navy);color:#fff;font-weight:700}
+.f-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:99px;font-size:12px;font-weight:600;border:1px solid var(--border);background:#fff;cursor:pointer;color:var(--text2);white-space:nowrap;transition:all .15s}
+.f-chip:hover{background:var(--blue-l);border-color:var(--navy);color:var(--navy)}
+.f-chip.active-f{background:var(--navy);color:#fff;border-color:var(--navy)}
+.f-chip.active-f i{color:#fff!important}
+.f-chip .fc{font-size:10px;background:rgba(0,0,0,0.1);padding:1px 6px;border-radius:99px;font-weight:700}
+.f-chip.active-f .fc{background:rgba(255,255,255,0.25)}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:20px;right:20px;padding:11px 20px;border-radius:var(--rs);font-size:13px;font-weight:600;z-index:999;opacity:0;transition:opacity .3s}
+.toast.show{opacity:1}
+
+/* ── CALLER CARD ACCENT ── */
+.caller-card-inner{border-left:4px solid var(--gold)!important}
+
+@media(max-width:640px){.g2,.g3,.g4{grid-template-columns:1fr}.main{padding:12px}.topbar{padding:0 12px;height:auto;padding-top:8px;padding-bottom:8px}}
+</style>
+</head>
+<body>
+
+<!-- ☁ GOOGLE SIGN-IN SCREEN -->
+<div id="gsignin-screen" class="login-wrap" style="display:none">
+  <div class="login-card" style="text-align:center">
+    <div class="login-header-bar">
+      <svg viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg" style="width:180px;height:auto;margin:0 auto 12px;display:block">
+        <!-- Angular chevron mark: wide body, left-pointing tip -->
+        <path d="M 2,40 L 36,4 L 52,4 L 34,32 L 52,32 L 34,60 L 52,76 L 36,76 Z" fill="white"/>
+        <!-- Inner diamond cutout (bg colour) -->
+        <polygon points="26,40 36,30 46,40 36,50" fill="#1B2A6B"/>
+        <!-- Upper thin swoosh -->
+        <path d="M 50,26 Q 110,4 194,19 Q 182,14 50,32 Z" fill="rgba(255,255,255,0.38)"/>
+        <!-- Wide green swoosh -->
+        <path d="M 54,40 Q 118,12 196,32 Q 176,22 54,56 Z" fill="#2E9060"/>
+        <text x="63" y="46" font-family="Arial,sans-serif" font-size="19" font-weight="800" fill="white" letter-spacing="1">SNS</text>
+        <text x="63" y="59" font-family="Arial,sans-serif" font-size="9.5" font-weight="700" fill="rgba(255,255,255,0.92)" letter-spacing="1.2">FINANCIAL SERVICES</text>
+        <text x="63" y="72" font-family="Arial,sans-serif" font-size="7.5" font-weight="400" fill="rgba(255,255,255,0.55)" letter-spacing="0.8">EMPOWER YOUR DREAMS</text>
+      </svg>
+      <div style="font-size:13px;font-weight:700;color:#fff;letter-spacing:0.06em;margin-top:4px">LoanIQ CRM</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.55);margin-top:3px;letter-spacing:0.05em">CLOUD-SYNCED · GOOGLE SHEETS</div>
+    </div>
+    <div style="font-size:13px;color:var(--text);font-weight:600;margin-bottom:6px">Welcome back</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:18px;line-height:1.5">Sign in with your Google account to access<br>the shared CRM database.</div>
+    <div id="gsi-btn-container" style="display:flex;justify-content:center;min-height:44px"></div>
+    <div id="boot-status" style="display:none;font-size:12px;color:var(--text2);margin-top:14px;padding:10px;background:var(--blue-l);border-radius:var(--rs);line-height:1.5"></div>
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border);font-size:11px;color:var(--text2);line-height:1.7">
+      <i class="ti ti-shield-check" style="color:var(--green)"></i> All call data is stored in your<br>Google Sheet · Only authorised emails can access
+    </div>
+    <button onclick="_startLocalOnly()" style="margin-top:12px;font-size:11px;background:none;border:none;color:var(--text2);text-decoration:underline;cursor:pointer">Continue offline (local data only)</button>
+  </div>
+</div>
+
+<!-- Config-missing banner shown on login screen if CLOUD_CONFIG empty -->
+<div id="cfg-warning" style="display:none;position:fixed;top:0;left:0;right:0;background:#FAEEDA;border-bottom:1px solid #f0c070;padding:8px 12px;text-align:center;font-size:12px;color:#854F0B;z-index:200">
+  <strong><i class="ti ti-alert-triangle"></i> Cloud sync not configured.</strong> Edit the <code>CLOUD_CONFIG</code> block in <code>index.html</code> (see README.md). Running in local-only mode.
+</div>
+
+<!-- LOGIN -->
+<div id="login-screen" class="login-wrap" style="display:none">
+  <div class="login-card">
+    <div class="login-header-bar">
+      <svg viewBox="0 0 200 80" xmlns="http://www.w3.org/2000/svg" style="width:180px;height:auto;margin:0 auto 12px;display:block">
+        <!-- Angular chevron mark: wide body, left-pointing tip -->
+        <path d="M 2,40 L 36,4 L 52,4 L 34,32 L 52,32 L 34,60 L 52,76 L 36,76 Z" fill="white"/>
+        <!-- Inner diamond cutout (bg colour) -->
+        <polygon points="26,40 36,30 46,40 36,50" fill="#1B2A6B"/>
+        <!-- Upper thin swoosh -->
+        <path d="M 50,26 Q 110,4 194,19 Q 182,14 50,32 Z" fill="rgba(255,255,255,0.38)"/>
+        <!-- Wide green swoosh -->
+        <path d="M 54,40 Q 118,12 196,32 Q 176,22 54,56 Z" fill="#2E9060"/>
+        <text x="63" y="46" font-family="Arial,sans-serif" font-size="19" font-weight="800" fill="white" letter-spacing="1">SNS</text>
+        <text x="63" y="59" font-family="Arial,sans-serif" font-size="9.5" font-weight="700" fill="rgba(255,255,255,0.92)" letter-spacing="1.2">FINANCIAL SERVICES</text>
+        <text x="63" y="72" font-family="Arial,sans-serif" font-size="7.5" font-weight="400" fill="rgba(255,255,255,0.55)" letter-spacing="0.8">EMPOWER YOUR DREAMS</text>
+</svg>
+      <div style="font-size:13px;font-weight:700;color:#fff;letter-spacing:0.06em;margin-top:4px">LoanIQ CRM</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:3px;letter-spacing:0.05em">PUDUKKOTTAI · TAMIL NADU</div>
+    </div>
+    <div id="login-list"></div>
+    <div style="margin-top:16px;text-align:center;font-size:11px;color:var(--text2)">Powered by AI · <a href="https://www.snsfinserv.in" target="_blank" style="color:var(--gold);text-decoration:none">snsfinserv.in</a></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app-shell" class="shell" style="display:none">
+  <div class="topbar">
+    <div class="logo">
+      <div class="logo-icon"><svg viewBox="0 0 120 44" xmlns="http://www.w3.org/2000/svg" style="width:auto;height:36px">
+  <!-- Angular chevron mark: wide, left-pointing -->
+  <path d="M 1,22 L 19,2 L 28,2 L 18,16 L 28,16 L 18,30 L 28,42 L 19,42 Z" fill="white"/>
+  <!-- Inner diamond -->
+  <polygon points="13,22 19,16 25,22 19,28" fill="#1B2A6B"/>
+  <!-- Upper thin swoosh -->
+  <path d="M 27,14 Q 60,4 112,11 Q 105,8 27,18 Z" fill="rgba(255,255,255,0.36)"/>
+  <!-- Green swoosh -->
+  <path d="M 29,22 Q 64,11 113,20 Q 99,15 29,28 Z" fill="#2E9060"/>
+  <text x="34" y="26" font-family="Arial,sans-serif" font-size="11" font-weight="900" fill="white" letter-spacing="0.5">SNS</text>
+  <text x="34" y="37" font-family="Arial,sans-serif" font-size="6.5" font-weight="600" fill="rgba(255,255,255,0.72)" letter-spacing="0.3">FINANCIAL</text>
+</svg></div>
+      <div class="logo-text"><strong>LoanIQ CRM</strong><small>SNS Financial Services · v4</small></div>
+    </div>
+    <div id="nav-area" style="display:flex;gap:4px;flex-wrap:wrap"></div>
+    <div class="topbar-right">
+      <span id="sync-status" title="Cloud sync status" style="font-size:11px;display:inline-flex;align-items:center;gap:4px;color:rgba(255,255,255,0.7);padding:4px 9px;border-radius:99px;background:rgba(255,255,255,0.08);cursor:default"><i class="ti ti-cloud" style="color:rgba(255,255,255,0.5)"></i> Cloud</span>
+      <span id="date-disp" style="color:var(--text2)"></span>
+      <span id="user-disp" style="font-weight:700;color:var(--blue)"></span>
+      <button onclick="logout()" style="font-size:11px;padding:5px 11px;background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.2);color:#fff"><i class="ti ti-logout"></i> Logout</button>
+    </div>
+  </div>
+  <div class="main">
+    <div id="page-admin" class="page"></div>
+    <div id="page-caller" class="page"></div>
+    <div id="page-reports" class="page"></div>
+    <div id="page-profile" class="page"></div>
+    <div id="page-settings" class="page"></div>
+  </div>
+</div>
+
+<!-- AI SETTINGS MODAL -->
+<div class="modal-overlay" id="ai-modal">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-title" style="color:var(--navy)">
+      <span><i class="ti ti-lock" style="color:var(--gold)"></i> AI Provider &amp; Encrypted Key</span>
+      <button onclick="closeModal('ai-modal')" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--text2)">&times;</button>
+    </div>
+
+    <!-- Security status banner -->
+    <div style="background:var(--navy);border-radius:var(--rs);padding:10px 14px;margin-bottom:16px;display:flex;align-items:center;gap:10px">
+      <i class="ti ti-shield-lock" style="color:var(--gold-l);font-size:18px;flex-shrink:0"></i>
+      <div>
+        <div style="font-size:12px;font-weight:700;color:#fff">AES-256-GCM Encryption</div>
+        <div id="enc-status" style="font-size:11px;color:rgba(255,255,255,0.6);margin-top:1px">Checking...</div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:14px">
+      <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:6px;letter-spacing:.06em">AI PROVIDER</label>
+      <select id="ai-provider-sel" onchange="updateProviderUI()" style="font-size:13px">
+        <option value="groq">Groq (Free — Llama 3.3 70B)</option>
+        <option value="gemini">Google Gemini (Free tier)</option>
+        <option value="anthropic">Anthropic Claude (Paid — best quality)</option>
+        <option value="openai">OpenAI GPT-4o (Paid)</option>
+        <option value="rule">Rule-based (No API — fully offline)</option>
+      </select>
+    </div>
+    <div id="provider-info" style="background:var(--gold-bg);border:1px solid var(--gold-border);border-radius:var(--rs);padding:10px;font-size:12px;color:var(--navy);margin-bottom:14px"></div>
+
+    <div id="api-key-section">
+      <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:6px;letter-spacing:.06em">API KEY <span style="font-weight:400;color:var(--text2)">(leave blank to keep existing)</span></label>
+      <input type="password" id="api-key-inp" placeholder="Paste your API key here..." style="margin-bottom:6px;font-family:monospace"/>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:10px" id="key-help"></div>
+
+      <label style="font-size:11px;font-weight:700;color:var(--navy);display:block;margin-bottom:6px;letter-spacing:.06em">
+        <i class="ti ti-key" style="color:var(--gold)"></i> MASTER PASSWORD <span style="color:var(--red);font-size:10px">required to encrypt / unlock key</span>
+      </label>
+      <input type="password" id="key-master-pw" placeholder="Enter master password to encrypt or unlock key" style="font-family:monospace;border-color:var(--gold)"/>
+      <div style="font-size:11px;color:var(--text2);margin-top:5px;line-height:1.5">
+        This password encrypts your API key with AES-256-GCM. <strong>The raw key is never stored.</strong><br>
+        You must enter this password each session to enable AI features.
+      </div>
+    </div>
+
+    <div style="margin-top:14px;margin-bottom:14px">
+      <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:6px;letter-spacing:.06em">MODEL</label>
+      <select id="model-sel" style="font-size:13px">
+        <option value="llama-3.3-70b-versatile">Llama 3.3 70B (default)</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="primary" onclick="saveAISettings()"><i class="ti ti-device-floppy"></i> Encrypt &amp; Save</button>
+      <button onclick="testAI()"><i class="ti ti-plug"></i> Test connection</button>
+      <button onclick="unlockOnly()"><i class="ti ti-lock-open"></i> Unlock for session</button>
+      <button onclick="closeModal('ai-modal')">Cancel</button>
+    </div>
+    <div id="ai-test-result" style="margin-top:10px;font-size:12px"></div>
+  </div>
+</div>
+
+<!-- CALLER MANAGEMENT MODAL -->
+<div class="modal-overlay" id="caller-modal">
+  <div class="modal-box">
+    <div class="modal-title">Manage callers <button onclick="closeModal('caller-modal')" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--text2)">&times;</button></div>
+    <div id="caller-mgmt-list"></div>
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px">ADD NEW CALLER</div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="new-caller-name" placeholder="Full name e.g. Ravi T" style="flex:1"/>
+        <button class="primary" onclick="addCaller()"><i class="ti ti-plus"></i> Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ASSIGN MODAL -->
+<div class="modal-overlay" id="assign-modal">
+  <div class="modal-box" style="max-width:640px">
+    <div class="modal-title">Assign contacts to callers <button onclick="closeModal('assign-modal')" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--text2)">&times;</button></div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:6px">ASSIGN METHOD</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="autoAssign()" class="primary"><i class="ti ti-arrows-shuffle"></i> Auto-assign evenly</button>
+        <button onclick="renderPercentAssign()" style="background:var(--green);color:#fff;border-color:var(--green)"><i class="ti ti-percentage"></i> Assign by %</button>
+        <button onclick="renderManualAssign()"><i class="ti ti-edit"></i> Manual assign</button>
+      </div>
+    </div>
+    <div id="assign-body"></div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="primary" onclick="saveAssignments()"><i class="ti ti-device-floppy"></i> Save assignments</button>
+      <button onclick="closeModal('assign-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- DECRYPT ARCHIVE MODAL -->
+<div class="modal-overlay" id="decrypt-modal">
+  <div class="modal-box" style="max-width:460px">
+    <div class="modal-title" style="font-size:15px"><i class="ti ti-lock-open" style="color:var(--green)"></i> Decrypt archived Sheet link <button onclick="closeModal('decrypt-modal')" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--text2);margin-left:auto">&times;</button></div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.5">The Google Sheet URL and CSV snapshot were encrypted with AES-256-GCM (PBKDF2, 200k iterations) using your admin PIN. Enter it to decrypt.</div>
+    <input type="password" id="decrypt-pin" placeholder="Admin PIN" style="letter-spacing:4px;font-size:18px;text-align:center;margin-bottom:10px" onkeydown="if(event.key==='Enter')doDecryptBatch()">
+    <div style="display:flex;gap:8px">
+      <button class="primary" onclick="doDecryptBatch()" style="flex:1"><i class="ti ti-key"></i> Decrypt</button>
+      <button onclick="closeModal('decrypt-modal')">Cancel</button>
+    </div>
+    <div id="decrypt-result"></div>
+  </div>
+</div>
+
+<!-- ADMIN PIN MODAL -->
+<div class="modal-overlay" id="pin-modal">
+  <div class="modal-box" style="max-width:340px">
+    <div class="modal-title" style="font-size:15px"><i class="ti ti-shield-lock" style="color:var(--blue)"></i> Admin verification <button onclick="closeModal('pin-modal')" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--text2)">&times;</button></div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px">Enter the admin PIN to continue.</div>
+    <input type="password" id="admin-pin-inp" placeholder="Admin PIN" style="letter-spacing:4px;font-size:18px;text-align:center;margin-bottom:12px" onkeydown="if(event.key==='Enter')verifyAdminPin()">
+    <div id="pin-error" style="font-size:12px;color:var(--red);margin-bottom:8px;display:none">Incorrect PIN. Try again.</div>
+    <div style="display:flex;gap:8px">
+      <button class="primary" onclick="verifyAdminPin()" style="flex:1"><i class="ti ti-lock-open"></i> Login as Admin</button>
+      <button onclick="closeModal('pin-modal')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ACCESS DENIED MODAL -->
+<div class="modal-overlay" id="access-denied-modal">
+  <div class="modal-box" style="max-width:320px;text-align:center">
+    <div style="font-size:40px;color:var(--red);margin-bottom:10px"><i class="ti ti-shield-x"></i></div>
+    <div style="font-size:16px;font-weight:800;color:var(--red);margin-bottom:8px">Access Denied</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:18px">Callers cannot access the Admin panel. Contact your admin if you need help.</div>
+    <button class="primary" onclick="closeModal('access-denied-modal')">OK, go back</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// ── STATE ─────────────────────────────────────────────────────────
+const ADMIN_PIN='1234'; // ← change this to your preferred admin PIN
+const STATUS_COLOR={'Not Called':'#888780','Follow Up':'#BA7517','Not Reachable':'#A32D2D','Wrong Number':'#A32D2D','Not Interested':'#A32D2D','Already Has Loan':'#534AB7','Callback Requested':'#185FA5','Interested':'#27500A'};
+const STATUS_BG={'Not Called':'#F1EFE8','Follow Up':'#FAEEDA','Not Reachable':'#FCEBEB','Wrong Number':'#FCEBEB','Not Interested':'#FCEBEB','Already Has Loan':'#EEEDFE','Callback Requested':'#E6F1FB','Interested':'#EAF3DE'};
+const STATUSES=['Not Called','Interested','Follow Up','Not Reachable','Wrong Number','Not Interested','Already Has Loan','Callback Requested'];
+const PIN_MAP={'620017':'Khajamalai','620018':'Thillai Nagar','620003':'Woraiyur','620009':'Dheeran Nagar','621105':'Samayapuram','621212':'Perambalur','612001':'Kumbakonam','641601':'Tiruppur'};
+const SECTOR_MAP={'Sivanithra Associates':'General Business','C.Swaminathan The Principal-Srm Ihm':'Education','MRP Handicrafts And Jewellery':'Handicrafts / Retail','Veteran Technology Solution':'IT / Technology','G Punitha Books':'Books / Retail','Royal Software':'IT / Software','ESL Technical Training And Trade Test Center':'Education / Training','The Monster IT':'IT / Technology','RO Sales And Service':'Sales / Service','White O Chem':'Chemicals','SAS Groups':'Business Conglomerate'};
+const AVATAR_COLORS=[['#E6F1FB','#0C447C'],['#EAF3DE','#27500A'],['#FAEEDA','#854F0B'],['#EEEDFE','#3C3489'],['#FAECE7','#712B13'],['#E1F5EE','#085041'],['#FCEBEB','#791F1F']];
+const PROVIDER_INFO={
+  groq:{label:'Groq — Free forever. No credit card.',help:'Get free key at console.groq.com → API Keys',models:['llama-3.3-70b-versatile','llama-3.1-8b-instant','mixtral-8x7b-32768']},
+  gemini:{label:'Google Gemini — Free tier: 15 req/min, 1M tokens/day.',help:'Get free key at aistudio.google.com/apikey',models:['gemini-1.5-flash','gemini-1.5-pro','gemini-2.0-flash']},
+  anthropic:{label:'Anthropic Claude — Best quality. ~₹0.20/customer.',help:'Get key at console.anthropic.com',models:['claude-sonnet-4-20250514','claude-haiku-4-5-20251001']},
+  openai:{label:'OpenAI — Paid. GPT-4o quality.',help:'Get key at platform.openai.com/api-keys',models:['gpt-4o','gpt-4o-mini','gpt-3.5-turbo']},
+  rule:{label:'Rule-based — No API needed. Works fully offline.',help:'No API key required.',models:['offline']}
+};
+
+function loadState(key,def){try{return JSON.parse(localStorage.getItem('liq_'+key))||def;}catch(e){return def;}}
+function saveState(key,val){localStorage.setItem('liq_'+key,JSON.stringify(val));}
+
+let callers=loadState('callers',[
+  {id:'c1',name:'Priya R',active:true,color:0},
+  {id:'c2',name:'Anand K',active:true,color:1},
+  {id:'c3',name:'Meena S',active:true,color:2},
+  {id:'c4',name:'Ravi T',active:true,color:3}
+]);
+
+let aiCfg=loadState('aicfg',{provider:'groq',model:'llama-3.3-70b-versatile',key:''});
+
+let customers=loadState('customers',[
+  {id:1,name:'Senthil Kumar',company:'Sivanithra Associates',designation:'—',email:'valadisenthil@gmail.com',phone:'9942199999',pin:'—',city:'Tiruchirappalli',score:47,eligibility:'Low',loan:'Micro Loan',callerId:'c1',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:''},
+  {id:2,name:'Swaminathan',company:'C.Swaminathan The Principal-Srm Ihm',designation:'Principal',email:'saminath2007@rediffmail.com',phone:'9894723215',pin:'621105',city:'Tiruchirappalli',score:83,eligibility:'High',loan:'Business / MSME Loan',callerId:'c2',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:''},
+  {id:3,name:'Peer Mohamad Nivas',company:'MRP Handicrafts And Jewellery',designation:'Owner',email:'nivas251987@gmail.com',phone:'9952265688',pin:'620017',city:'Tiruchirappalli',score:90,eligibility:'High',loan:'Business / MSME Loan',callerId:'c1',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:''},
+  {id:4,name:'Surendran',company:'Veteran Technology Solution',designation:'Proprietor',email:'seventhsensegroups@gmail.com',phone:'7639077307',pin:'612001',city:'Tiruchirappalli',score:85,eligibility:'High',loan:'Business / MSME Loan',callerId:'c3',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:''},
+  {id:5,name:'Srinivasa Rathnam',company:'G Punitha Books',designation:'Owner',email:'gpbooks2012@yahoo.com',phone:'7373822926',pin:'620003',city:'Tiruchirappalli',score:90,eligibility:'High',loan:'Business / MSME Loan',callerId:'c2',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:''},
+  {id:6,name:'C Raja',company:'Royal Software',designation:'Proprietor',email:'royalraaja@hotmail.com',phone:'9894619707',pin:'620018',city:'Tiruchirappalli',score:98,eligibility:'High',loan:'Business / MSME Loan',callerId:'c4',status:'Interested',comments:'Very interested, wants ₹15L expansion loan.',callHistory:[{date:'2026-05-19',caller:'Ravi T',status:'Interested',comment:'Very interested. Wants ₹15L business expansion loan.'}],enriched:true,aiInsight:'Royal Software est. 2002 — 23 years active. Rated 4.4/5 on JustDial. Score 98/100. Recommend MSME loan ₹5–15L. Fast-track KYC — address confirmed online.'},
+  {id:7,name:'Praveen',company:'ESL Technical Training And Trade Test Center',designation:'Owner',email:'esltrichy@gmail.com',phone:'8526141878',pin:'620009',city:'Tiruchirappalli',score:86,eligibility:'High',loan:'Business / MSME Loan',callerId:'c3',status:'Follow Up',comments:'Called, busy. Try Thursday afternoon.',callHistory:[{date:'2026-05-18',caller:'Meena S',status:'Follow Up',comment:'Not available, asked to call back Thursday.'}],enriched:false,aiInsight:''},
+  {id:8,name:'Kirubakaran M',company:'The Monster IT',designation:'Business Owner',email:'themonsterit@hotmail.com',phone:'8883166444',pin:'620018',city:'Tiruchirappalli',score:95,eligibility:'High',loan:'Business / MSME Loan',callerId:'c4',status:'Not Called',comments:'',callHistory:[],enriched:true,aiInsight:'Monster IT est. 2009 — 16 yrs. 930 reviews, 4.8 rating. Dell & Lenovo authorised. GST registered. 2 offices. Recommend ₹10–25L expansion loan. Very strong candidate.'},
+  {id:9,name:'Mahend Ran',company:'RO Sales And Service',designation:'Owner',email:'ma9994448808@yahoo.com',phone:'9994448808',pin:'621212',city:'Tiruchirappalli',score:88,eligibility:'High',loan:'Business / MSME Loan',callerId:'c1',status:'Callback Requested',comments:'Call back Friday 11am.',callHistory:[{date:'2026-05-20',caller:'Priya R',status:'Callback Requested',comment:'Requested callback Friday 11am.'}],enriched:false,aiInsight:''},
+  {id:10,name:'Praveen Kumar',company:'White O Chem',designation:'Marketing Manager',email:'whiteochem@gmail.com',phone:'9362203066',pin:'641601',city:'Tiruchirappalli',score:90,eligibility:'High',loan:'Business / MSME Loan',callerId:'c2',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:''},
+  {id:11,name:'Shaji',company:'SAS Groups',designation:'Managing Director',email:'shajiexcel999@gmail.com',phone:'7801040482',pin:'620018',city:'Tiruchirappalli',score:85,eligibility:'High',loan:'Business / MSME Loan',callerId:'c4',status:'Not Reachable',comments:'No answer after 3 attempts.',callHistory:[{date:'2026-05-20',caller:'Ravi T',status:'Not Reachable',comment:'No answer x3.'}],enriched:false,aiInsight:''}
+]);
+
+let currentUser=null,currentRole=null,currentCallerId=null,prevPage='admin';
+
+function save(){saveState('customers',customers);saveState('callers',callers);}
+function initials(n){return n.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();}
+function ac(n){return AVATAR_COLORS[n.charCodeAt(0)%AVATAR_COLORS.length];}
+function scoreColor(s){return s>=80?'#1D9E75':s>=60?'#EF9F27':'#E24B4A';}
+function today(){return new Date().toISOString().split('T')[0];}
+function callerById(id){return callers.find(c=>c.id===id)||{name:'Unassigned',id:'',color:6};}
+function callerName(id){return callerById(id).name;}
+function showToast(msg,color='#27500A'){const t=document.getElementById('toast');t.textContent=msg;t.style.background=color;t.style.color='#fff';t.className='toast show';setTimeout(()=>t.className='toast',2500);}
+function closeModal(id){document.getElementById(id).className='modal-overlay';}
+
+// ── LOGIN ──────────────────────────────────────────────────────────
+function buildLoginList(){
+  const el=document.getElementById('login-list');
+  const activeCallers=callers.filter(c=>c.active);
+  let html=`
+  <div class="section-divider">Admin</div>
+  <button class="user-btn" onclick="promptAdminPin()">
+    <div class="avatar" style="width:38px;height:38px;background:#E6F1FB;color:#185FA5;font-size:13px">AD</div>
+    <div><div style="font-weight:700">Admin</div><div style="font-size:11px;color:var(--text2)">Full access · Upload · Reports · Settings · PIN required</div></div>
+    <span class="badge b-blue" style="margin-left:auto"><i class="ti ti-lock" style="font-size:9px"></i> Admin</span>
+  </button>
+  <div class="section-divider">Active callers</div>`;
+  activeCallers.forEach(c=>{
+    const [bg,fg]=AVATAR_COLORS[c.color%AVATAR_COLORS.length];
+    const mine=customers.filter(x=>x.callerId===c.id);
+    const done=mine.filter(x=>x.status!=='Not Called').length;
+    html+=`<button class="user-btn" onclick="login('${c.name}','caller','${c.id}')">
+      <div class="avatar" style="width:38px;height:38px;background:${bg};color:${fg};font-size:13px">${initials(c.name)}</div>
+      <div><div style="font-weight:700">${c.name}</div><div style="font-size:11px;color:var(--text2)">${mine.length} assigned · ${done} called today</div></div>
+      <span class="badge b-green" style="margin-left:auto">Caller</span>
+    </button>`;
+  });
+  el.innerHTML=html;
+}
+
+function login(name,role,callerId){
+  currentUser=name;currentRole=role;currentCallerId=callerId;
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app-shell').style.display='flex';
+  document.getElementById('user-disp').textContent=name;
+  document.getElementById('date-disp').textContent=new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'});
+  buildNav();
+  showPage(role==='admin'?'admin':'caller');
+}
+
+function logout(){
+  currentUser=null;currentRole=null;currentCallerId=null;
+  lockApiKey(); // wipe decrypted key from memory on logout
+  document.getElementById('app-shell').style.display='none';
+  document.getElementById('login-screen').style.display='flex';
+  buildLoginList();
+}
+
+function promptAdminPin(){
+  document.getElementById('admin-pin-inp').value='';
+  document.getElementById('pin-error').style.display='none';
+  openModal('pin-modal');
+  setTimeout(()=>document.getElementById('admin-pin-inp').focus(),100);
+}
+
+function verifyAdminPin(){
+  const entered=document.getElementById('admin-pin-inp').value.trim();
+  const pin=localStorage.getItem('liq_adminpin')||ADMIN_PIN;
+  if(entered===pin){
+    closeModal('pin-modal');
+    login('Admin','admin',null);
+  } else {
+    document.getElementById('pin-error').style.display='block';
+    document.getElementById('admin-pin-inp').value='';
+    document.getElementById('admin-pin-inp').focus();
+  }
+}
+
+function buildNav(){
+  const el=document.getElementById('nav-area');
+  if(currentRole==='admin'){
+    el.innerHTML=`<button class="nav-btn active" id="nb-admin" onclick="showPage('admin')"><i class="ti ti-shield-lock"></i>Admin</button><button class="nav-btn" id="nb-caller" onclick="showPage('caller')"><i class="ti ti-phone"></i>Caller view</button><button class="nav-btn" id="nb-reports" onclick="showPage('reports')"><i class="ti ti-chart-bar"></i>Reports</button><button class="nav-btn" id="nb-settings" onclick="showPage('settings')"><i class="ti ti-settings"></i>Settings</button>`;
+  } else {
+    el.innerHTML=`<button class="nav-btn active" id="nb-caller" onclick="showPage('caller')"><i class="ti ti-phone"></i>My calls</button><button class="nav-btn" id="nb-reports" onclick="showPage('reports')"><i class="ti ti-chart-bar"></i>My report</button>`;
+  }
+}
+
+function showPage(p){
+  // ── ACCESS CONTROL: callers cannot access admin or settings ──
+  if(currentRole!=='admin' && (p==='admin'||p==='settings')){
+    openModal('access-denied-modal');
+    return;
+  }
+  ['admin','caller','reports','profile','settings'].forEach(x=>{document.getElementById('page-'+x).className='page';});
+  document.getElementById('page-'+p).className='page active';
+  ['admin','caller','reports','settings'].forEach(x=>{const b=document.getElementById('nb-'+x);if(b)b.className='nav-btn'+(x===p?' active':'');});
+  if(p!=='profile') prevPage=p;
+  if(p==='admin') renderAdmin();
+  else if(p==='caller') renderCaller();
+  else if(p==='reports') renderReports();
+  else if(p==='settings') renderSettings();
+}
+
+// ── ADMIN ──────────────────────────────────────────────────────────
+function renderAdmin(){
+  const total=customers.length,called=customers.filter(c=>c.status!=='Not Called').length,interested=customers.filter(c=>c.status==='Interested').length,enriched=customers.filter(c=>c.enriched).length;
+  document.getElementById('page-admin').innerHTML=`
+<div class="g4">
+  <div class="mc"><div class="mc-v">${total}</div><div class="mc-l">Total customers</div></div>
+  <div class="mc"><div class="mc-v">${called}</div><div class="mc-l">Called today</div></div>
+  <div class="mc"><div class="mc-v">${interested}</div><div class="mc-l">Interested</div></div>
+  <div class="mc"><div class="mc-v">${enriched}/${total}</div><div class="mc-l">AI enriched</div></div>
+</div>
+
+<div class="card">
+  <div class="card-title">Upload &amp; manage</div>
+  <div class="upload-zone" id="upload-drop-zone" onclick="document.getElementById('file-up').click()" ondragover="event.preventDefault();this.style.borderColor='var(--blue)'" ondragleave="this.style.borderColor=''" ondrop="handleDrop(event)">
+    <i class="ti ti-cloud-upload" style="font-size:32px;color:#bbb;display:block;margin-bottom:8px"></i>
+    <div style="font-weight:600;margin-bottom:4px">Drop CSV or Excel file here, or click to upload</div>
+    <div style="font-size:11px;margin-bottom:6px">Supports: <span class="badge b-green" style="font-size:9px">CSV</span> <span class="badge b-blue" style="font-size:9px">XLSX</span> <span class="badge b-amber" style="font-size:9px">XLS</span></div>
+    <div style="font-size:11px;color:var(--text2)">Columns: name, company, designation, email, phone, pin, city</div>
+  </div>
+  <input type="file" id="file-up" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleUpload(this)">
+  <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+    <button class="primary" onclick="enrichAll()"><i class="ti ti-brain"></i> AI enrich all</button>
+    <button onclick="openModal('assign-modal');renderAssignModal()"><i class="ti ti-users"></i> Assign contacts</button>
+    <button onclick="exportCSV()"><i class="ti ti-download"></i> Export CSV</button>
+  </div>
+  <div id="upload-msg" style="font-size:12px;color:var(--text2);margin-top:8px"></div>
+  <div style="margin-top:10px;padding:10px 12px;background:var(--blue-l);border-radius:var(--rs);font-size:11px;color:var(--navy);display:flex;align-items:flex-start;gap:8px">
+    <i class="ti ti-shield-lock" style="font-size:14px;flex-shrink:0;margin-top:1px"></i>
+    <div><strong>Auto-archive on upload:</strong> Existing customer data is pushed to your Google Sheet (via Apps Script webhook) and a local AES-256-GCM encrypted backup is kept. Set the destination in <a href="javascript:show('settings')" style="color:var(--navy);font-weight:700;text-decoration:underline">Settings → Google Sheets archive</a>.</div>
+  </div>
+</div>
+
+<div class="card" id="archive-card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <div class="card-title" style="margin:0;display:flex;align-items:center;gap:6px"><i class="ti ti-archive" style="font-size:12px"></i> Archived sheets <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--text2)">— encrypted link vault</span></div>
+    <div id="archive-count" style="font-size:11px;color:var(--text2)"></div>
+  </div>
+  <div id="archive-list"></div>
+</div>
+
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+    <div class="card-title" style="margin:0">Customer list</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <select onchange="adminFilter()" id="f-caller" style="width:auto;font-size:12px"><option>All callers</option>${callers.map(c=>`<option>${c.name}</option>`).join('')}</select>
+      <select onchange="adminFilter()" id="f-status" style="width:auto;font-size:12px"><option>All statuses</option>${STATUSES.map(s=>`<option>${s}</option>`).join('')}</select>
+      <select onchange="adminFilter()" id="f-elig" style="width:auto;font-size:12px"><option>All eligibility</option><option>High</option><option>Moderate</option><option>Low</option></select>
+      <input type="text" id="f-search" oninput="adminFilter()" placeholder="Search name/company..." style="width:160px;font-size:12px;padding:6px 10px">
+    </div>
+  </div>
+  <div style="overflow-x:auto">
+  <table class="tbl">
+    <thead><tr><th>#</th><th>Customer</th><th>Company</th><th>Area / PIN</th><th>Score</th><th>Assigned to</th><th>Status</th><th>Uploaded</th><th>Contact</th><th>AI</th></tr></thead>
+    <tbody id="admin-tbody"></tbody>
+  </table>
+  </div>
+</div>`;
+  adminFilter();
+  renderArchivedBatches();
+}
+
+function adminFilter(){
+  const fc=document.getElementById('f-caller')?.value||'All callers';
+  const fs=document.getElementById('f-status')?.value||'All statuses';
+  const fe=document.getElementById('f-elig')?.value||'All eligibility';
+  const fq=(document.getElementById('f-search')?.value||'').toLowerCase();
+  let list=customers;
+  if(fc!=='All callers') list=list.filter(c=>callerName(c.callerId)===fc);
+  if(fs!=='All statuses') list=list.filter(c=>c.status===fs);
+  if(fe!=='All eligibility') list=list.filter(c=>c.eligibility===fe);
+  if(fq) list=list.filter(c=>c.name.toLowerCase().includes(fq)||c.company.toLowerCase().includes(fq));
+  const tbody=document.getElementById('admin-tbody');
+  if(!tbody) return;
+  tbody.innerHTML=list.map((c,i)=>{
+    const [bg,fg]=ac(c.name);
+    return`<tr onclick="openProfile(${c.id})">
+      <td style="color:var(--text2)">${i+1}</td>
+      <td><div style="display:flex;align-items:center;gap:8px"><div class="avatar" style="width:30px;height:30px;font-size:11px;background:${bg};color:${fg}">${initials(c.name)}</div><div><div style="font-weight:700;font-size:12px">${c.name}</div><div style="font-size:11px;color:var(--text2)">${c.phone}</div></div></div></td>
+      <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${c.company}</td>
+      <td style="font-size:12px">${c.pin!=='—'?(PIN_MAP[c.pin]||c.city)+' · '+c.pin:c.city}</td>
+      <td><div style="display:flex;align-items:center;gap:5px"><span style="font-weight:800;color:${scoreColor(c.score)}">${c.score}</span><div class="prog-bg" style="width:36px"><div class="prog-f" style="width:${c.score}%;background:${scoreColor(c.score)}"></div></div></div></td>
+      <td style="font-size:12px">${callerName(c.callerId)}</td>
+      <td><span class="status-pill" style="background:${STATUS_BG[c.status]};color:${STATUS_COLOR[c.status]}"><span class="dot" style="background:${STATUS_COLOR[c.status]}"></span>${c.status}</span></td>
+      <td>${fmtUpload(c.uploadedAt)}</td>
+      <td>${fmtContactStatus(c)}</td>
+      <td><span style="font-size:11px;font-weight:600;color:${c.enriched?'#27500A':'#bbb'}">${c.enriched?'✓ Done':'Pending'}</span></td>
+    </tr>`;}).join('');
+}
+
+function handleDrop(event){
+  event.preventDefault();
+  document.getElementById('upload-drop-zone').style.borderColor='';
+  const file=event.dataTransfer.files[0];
+  if(file) processFile(file);
+}
+
+function handleUpload(input){
+  const file=input.files[0];
+  if(!file) return;
+  processFile(file);
+  input.value=''; // reset so same file can be re-uploaded
+}
+
+function processFile(file){
+  const msg=document.getElementById('upload-msg');
+  const name=file.name.toLowerCase();
+  if(name.endsWith('.csv')){
+    msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Reading CSV...</span>';
+    const reader=new FileReader();
+    reader.onload=e=>importFromCSVText(e.target.result,msg);
+    reader.readAsText(file);
+  } else if(name.endsWith('.xlsx')||name.endsWith('.xls')){
+    msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Reading Excel...</span>';
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const wb=XLSX.read(e.target.result,{type:'binary'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+        importFromRowObjects(rows,msg);
+      }catch(err){msg.innerHTML=`<span style="color:var(--red)">✗ Excel read error: ${err.message}</span>`;}
+    };
+    reader.readAsBinaryString(file);
+  } else {
+    msg.innerHTML='<span style="color:var(--red)">✗ Unsupported file type. Use CSV, XLSX, or XLS.</span>';
+  }
+}
+
+function normalizeKey(k){return k.trim().toLowerCase().replace(/[\s_\-]+/g,'_');}
+
+// ── CONTACT-ACTION TRACKING ───────────────────────────────────────
+function trackCall(id,event){
+  if(event) event.stopPropagation();
+  const c=customers.find(x=>x.id===id);
+  if(!c) return true;
+  c.lastCalledAt=Date.now();
+  c.callCount=(c.callCount||0)+1;
+  if(c.status==='Not Called'){
+    c.status='Follow Up';
+    c.callHistory.push({date:today(),caller:currentUser,status:'Follow Up',comment:'Called via Call Now button'});
+  }
+  save();
+  setTimeout(()=>{
+    adminFilter();
+    if(typeof _refreshCallerStats==='function') _refreshCallerStats();
+    if(typeof filterCallerCards==='function') filterCallerCards();
+  },50);
+  return true;
+}
+function trackWa(id,event){
+  if(event) event.stopPropagation();
+  const c=customers.find(x=>x.id===id);
+  if(!c) return;
+  c.lastWaAt=Date.now();
+  c.waCount=(c.waCount||0)+1;
+  save();
+  setTimeout(()=>{adminFilter();if(typeof renderCaller==='function'&&currentRole==='caller')renderCaller();},50);
+}
+function fmtUpload(ts){
+  if(!ts) return '<span style="color:#bbb;font-size:10px">Seed data</span>';
+  const d=new Date(ts);const now=Date.now();const diff=now-ts;
+  const dateStr=d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
+  const timeStr=d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+  let rel='';
+  if(diff<60000) rel='just now';
+  else if(diff<3600000) rel=Math.floor(diff/60000)+'m ago';
+  else if(diff<86400000) rel=Math.floor(diff/3600000)+'h ago';
+  else if(diff<2592000000) rel=Math.floor(diff/86400000)+'d ago';
+  return `<div style="font-size:11px;font-weight:600">${dateStr}</div><div style="font-size:10px;color:var(--text2)">${timeStr} · ${rel}</div>`;
+}
+function fmtContactStatus(c){
+  const callOn=!!c.lastCalledAt;
+  const waOn=!!c.lastWaAt;
+  const callTip=callOn?`Called ${c.callCount||1}× — last ${new Date(c.lastCalledAt).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}`:'Not called yet';
+  const waTip=waOn?`Shared ${c.waCount||1}× — last ${new Date(c.lastWaAt).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}`:'Not shared on WhatsApp';
+  return `<div style="display:flex;gap:4px;align-items:center">
+    <span title="${callTip}" style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:3px 7px;border-radius:99px;background:${callOn?'var(--green-l)':'#f3f4f6'};color:${callOn?'var(--green)':'#aaa'};border:1px solid ${callOn?'#A8D8BC':'#e0e0e0'}">
+      <i class="ti ti-phone" style="font-size:10px"></i>${callOn?(c.callCount||1):'·'}
+    </span>
+    <span title="${waTip}" style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:3px 7px;border-radius:99px;background:${waOn?'#dcf8c6':'#f3f4f6'};color:${waOn?'#075e54':'#aaa'};border:1px solid ${waOn?'#A8D8BC':'#e0e0e0'}">
+      <i class="ti ti-brand-whatsapp" style="font-size:10px"></i>${waOn?(c.waCount||1):'·'}
+    </span>
+  </div>`;
+}
+
+// ── ARCHIVE OLD DATA → ENCRYPTED GOOGLE SHEET LINK ───────────────
+function _b64(arr){return btoa(String.fromCharCode(...arr));}
+function _genSheetId(){const a='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';const r=crypto.getRandomValues(new Uint8Array(44));return [...r].map(b=>a[b%64]).join('');}
+function _buildCsv(list){
+  const cols=['name','company','designation','email','phone','pin','city','score','eligibility','loan','status','comments','callerId','uploadedAt','lastCalledAt','callCount','lastWaAt','waCount'];
+  const fmt=(c,k)=>{
+    const v=c[k];
+    if(v==null) return '';
+    if(k==='uploadedAt'||k==='lastCalledAt'||k==='lastWaAt') return v?new Date(v).toLocaleString('en-IN'):'';
+    return String(v);
+  };
+  const esc=v=>{v=v==null?'':String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+  return [cols.join(','),...list.map(c=>cols.map(k=>esc(fmt(c,k))).join(','))].join('\n');
+}
+async function archiveOldData(oldList){
+  if(!oldList||!oldList.length) return null;
+  const pin=localStorage.getItem('liq_adminpin')||ADMIN_PIN;
+  const csv=_buildCsv(oldList);
+  const cfg=loadState('gsheet_cfg',{});
+  let sheetUrl=cfg.url||'';
+  let pushResult=null;
+
+  // 1. Try real push via Apps Script webhook if configured
+  const webhookEnc=loadState('gsheet_webhook_enc',null);
+  if(webhookEnc){
+    try{
+      const webhookUrl=await _decryptKey(webhookEnc,pin);
+      const rows=_csvToRows(csv);
+      const sheetName='Archive '+new Date().toISOString().slice(0,16).replace('T',' ');
+      const resp=await fetch(webhookUrl,{
+        method:'POST',
+        // Apps Script web apps accept text/plain to avoid CORS preflight
+        headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify({sheet:sheetName,rows,replace:false,source:'SNS LoanIQ CRM'})
+      });
+      const result=await _parseWebhookResp(resp);
+      if(result.ok){
+        pushResult={ok:true,sheet:result.sheet||sheetName,added:result.added||rows.length,url:result.url};
+        if(result.url) sheetUrl=result.url;
+      } else {
+        pushResult={ok:false,error:result.error||result.raw||'Webhook returned error'};
+      }
+    }catch(e){
+      pushResult={ok:false,error:e.message||'Network error'};
+    }
+  }
+
+  if(!sheetUrl){
+    const sheetId=_genSheetId();
+    sheetUrl=`https://docs.google.com/spreadsheets/d/${sheetId}/edit#gid=0`;
+  }
+
+  const payload=JSON.stringify({url:sheetUrl,csv,count:oldList.length,at:Date.now(),realSheetUrl:pushResult&&pushResult.ok?sheetUrl:undefined,pushResult});
+  const ciphertext=await _encryptKey(payload,pin);
+  const m=sheetUrl.match(/spreadsheets\/d\/([A-Za-z0-9_\-]+)/);
+  const sid=m?m[1]:'local';
+  const batch={
+    id:'arc_'+Date.now(),
+    when:new Date().toISOString(),
+    count:oldList.length,
+    hint:sid.slice(0,6)+'…'+sid.slice(-4),
+    enc:ciphertext,
+    pushed:!!(pushResult&&pushResult.ok),
+    linked:!!(pushResult&&pushResult.ok)
+  };
+  const batches=loadState('archived_batches',[]);
+  batches.unshift(batch);
+  saveState('archived_batches',batches);
+  return batch;
+}
+
+function _csvToRows(csv){
+  // Parse CSV → array-of-arrays for Apps Script setValues
+  const out=[];let row=[],cur='',inQ=false;
+  for(let i=0;i<csv.length;i++){
+    const ch=csv[i];
+    if(inQ){
+      if(ch==='"'&&csv[i+1]==='"'){cur+='"';i++;}
+      else if(ch==='"'){inQ=false;}
+      else cur+=ch;
+    } else {
+      if(ch==='"') inQ=true;
+      else if(ch===','){row.push(cur);cur='';}
+      else if(ch==='\n'){row.push(cur);out.push(row);row=[];cur='';}
+      else if(ch==='\r'){}
+      else cur+=ch;
+    }
+  }
+  if(cur.length||row.length){row.push(cur);out.push(row);}
+  return out;
+}
+
+async function saveGSheetCfg(){
+  const url=document.getElementById('gsheet-url-inp').value.trim();
+  const webhook=document.getElementById('gsheet-webhook-inp').value.trim();
+  const msg=document.getElementById('gsheet-cfg-msg');
+  if(url&&!/^https:\/\/docs\.google\.com\/spreadsheets\/d\//.test(url)){
+    msg.innerHTML='<span style="color:var(--red)">✗ Sheet URL must start with https://docs.google.com/spreadsheets/d/</span>';return;
+  }
+  saveState('gsheet_cfg',{url});
+  if(webhook){
+    if(!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_\-]+\/exec/.test(webhook)){
+      msg.innerHTML='<span style="color:var(--red)">✗ Webhook URL must look like https://script.google.com/macros/s/.../exec</span>';return;
+    }
+    const pin=localStorage.getItem('liq_adminpin')||ADMIN_PIN;
+    const ct=await _encryptKey(webhook,pin);
+    saveState('gsheet_webhook_enc',ct);
+    msg.innerHTML='<span style="color:var(--green)">✓ Destination saved. Webhook encrypted with AES-256-GCM.</span>';
+  } else {
+    msg.innerHTML='<span style="color:var(--green)">✓ Sheet URL saved.</span>';
+  }
+  setTimeout(()=>renderSettings(),700);
+}
+
+async function verifyScriptVersion(){
+  const msg=document.getElementById('gsheet-cfg-msg');
+  const enc=loadState('gsheet_webhook_enc',null);
+  const inline=document.getElementById('gsheet-webhook-inp').value.trim();
+  let webhookUrl=inline;
+  if(!webhookUrl){
+    if(!enc){msg.innerHTML='<span style="color:var(--red)">✗ No webhook configured. Paste your /exec URL above and click Save first.</span>';return;}
+    try{const pin=localStorage.getItem('liq_adminpin')||ADMIN_PIN;webhookUrl=await _decryptKey(enc,pin);}
+    catch(e){msg.innerHTML='<span style="color:var(--red)">✗ Couldn\u2019t decrypt webhook.</span>';return;}
+  }
+  msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Checking which script your webhook URL is serving...</span>';
+  try{
+    // GET request — our new script returns {ok:true, msg:'SNS LoanIQ archive webhook is live'}
+    const resp=await fetch(webhookUrl,{method:'GET'});
+    const text=await resp.text();
+    const correct=/SNS LoanIQ archive webhook is live/i.test(text);
+    if(correct){
+      msg.innerHTML=`<div style="color:var(--green);background:var(--green-l);border:1px solid #A8D8BC;padding:10px;border-radius:var(--rs)">
+        <div style="font-weight:700"><i class="ti ti-check"></i> Correct script is deployed.</div>
+        <div style="font-size:11px;margin-top:4px">Your webhook is serving the SNS LoanIQ snippet. Click <strong>Test push</strong> to confirm rows write correctly.</div>
+      </div>`;
+    } else {
+      const preview=text.slice(0,140).replace(/</g,'&lt;');
+      msg.innerHTML=`<div style="color:var(--red);background:var(--red-l);border:1px solid #f0c0c0;padding:12px;border-radius:var(--rs)">
+        <div style="font-weight:700;margin-bottom:6px"><i class="ti ti-alert-circle"></i> Wrong script — your webhook is serving OLD code.</div>
+        <div style="font-size:11.5px;line-height:1.6;margin-bottom:8px">The URL responded with:<br><code style="background:#fff;padding:2px 6px;border-radius:3px;font-size:10.5px;display:inline-block;margin-top:3px;max-width:100%;word-break:break-all">${preview||'(empty)'}</code></div>
+        <div style="font-size:11.5px;font-weight:700;margin-bottom:4px">The most common cause: you saved the new code but didn't redeploy.</div>
+        <div style="font-size:11.5px;line-height:1.7"><strong>Fix:</strong> In Apps Script editor → <strong>Deploy → Manage deployments → ✏️ pencil icon → Version dropdown: "New version" → Deploy.</strong> Saving the code (💾) alone keeps serving the previous version at this URL.</div>
+      </div>`;
+    }
+  }catch(e){
+    msg.innerHTML=`<span style="color:var(--red)">✗ Network error: ${e.message}</span>`;
+  }
+}
+
+async function testGSheetWebhook(){
+  const msg=document.getElementById('gsheet-cfg-msg');
+  const enc=loadState('gsheet_webhook_enc',null);
+  const inlineWh=document.getElementById('gsheet-webhook-inp').value.trim();
+  let webhookUrl=inlineWh;
+  if(!webhookUrl){
+    if(!enc){msg.innerHTML='<span style="color:var(--red)">✗ No webhook saved. Enter one and click Save first, or paste it in the field above.</span>';return;}
+    try{
+      const pin=localStorage.getItem('liq_adminpin')||ADMIN_PIN;
+      webhookUrl=await _decryptKey(enc,pin);
+    }catch(e){msg.innerHTML='<span style="color:var(--red)">✗ Couldn\u2019t decrypt webhook (wrong admin PIN?).</span>';return;}
+  }
+  msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Sending test row to Google Sheet...</span>';
+  try{
+    const resp=await fetch(webhookUrl,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({sheet:'CRM Test Push',rows:[['Timestamp','Source','Status'],[new Date().toISOString(),'SNS LoanIQ CRM','Webhook test successful']],replace:false})
+    });
+    const result=await _parseWebhookResp(resp);
+    if(result.ok){
+      const sheetUrl=result.url||document.getElementById('gsheet-url-inp').value||'#';
+      if(result.added&&result.columns){
+        msg.innerHTML=`<span style="color:var(--green)">✓ Test push wrote <strong>${result.added} rows × ${result.columns} columns</strong> to <strong>${result.sheet}</strong>. <a href="${sheetUrl}" target="_blank" style="color:var(--navy);font-weight:700">Open Sheet ↗</a></span>`;
+      } else if(result.added){
+        msg.innerHTML=`<span style="color:var(--green)">✓ Test push succeeded — ${result.added} rows added to <strong>${result.sheet}</strong>. <a href="${sheetUrl}" target="_blank" style="color:var(--navy);font-weight:700">Open Sheet ↗</a></span>`;
+      } else {
+        // Plain-text legacy response — webhook responded but we can't confirm rows were written
+        msg.innerHTML=`<div style="color:var(--amber);background:var(--amber-l);border:1px solid #f0c070;padding:12px;border-radius:var(--rs);margin-top:4px">
+          <div style="font-weight:700;margin-bottom:6px"><i class="ti ti-alert-triangle"></i> Webhook responded "${(result.raw||'').trim().slice(0,40)}" — this is your OLD script.</div>
+          <div style="font-size:11.5px;line-height:1.6;margin-bottom:8px">Your saved code update didn't reach this URL. <strong>The new code wasn't deployed</strong> — saving (💾) is not the same as deploying.</div>
+          <div style="font-size:11.5px;font-weight:700;color:var(--text);background:#fff;padding:8px 10px;border-radius:6px;border:1px solid #e0c080">
+            ✓ Step you missed: In Apps Script → <strong>Deploy → Manage deployments → ✏️ pencil → Version: "New version" → Deploy</strong>. This updates what's served at your <code>/exec</code> URL.
+          </div>
+          <div style="font-size:11px;margin-top:8px">After redeploying, click <strong>"Verify script version"</strong> above to confirm the right code is live.</div>
+        </div>`;
+        document.getElementById('gsheet-setup').style.display='block';
+      }
+    } else {
+      msg.innerHTML=`<span style="color:var(--red)">✗ Webhook reported error: ${result.error||result.raw||'unknown'}</span>`;
+    }
+  }catch(e){
+    msg.innerHTML=`<span style="color:var(--red)">✗ Network/CORS error: ${e.message}. Make sure your Apps Script deployment is set to "Anyone" access.</span>`;
+  }
+}
+
+// Tolerant parser: handles JSON responses AND plain-text legacy scripts that return "Success"/"OK"
+async function _parseWebhookResp(resp){
+  const text=await resp.text();
+  if(!resp.ok){
+    return {ok:false,error:`HTTP ${resp.status}`,raw:text};
+  }
+  // Try JSON first
+  try{
+    const j=JSON.parse(text);
+    if(typeof j==='object'&&j!==null){
+      // Accept {ok:true,...} OR {status:"success",...} OR {result:"success",...}
+      const ok=j.ok===true||/^(success|ok|done)$/i.test(j.status||j.result||'');
+      return {ok,sheet:j.sheet,added:j.added,columns:j.columns,url:j.url,error:j.error,raw:text};
+    }
+  }catch(_){/* not JSON */}
+  // Plain-text legacy: treat "Success"/"OK"/"Done" (case-insensitive) as success
+  if(/^\s*(success|ok|done|true)\b/i.test(text)){
+    return {ok:true,raw:text};
+  }
+  return {ok:false,error:'Unexpected response',raw:text};
+}
+function renderArchivedBatches(){
+  const wrap=document.getElementById('archive-list');
+  const cnt=document.getElementById('archive-count');
+  if(!wrap) return;
+  const batches=loadState('archived_batches',[]);
+  cnt.textContent=batches.length?`${batches.length} batch${batches.length>1?'es':''} on file`:'';
+  if(!batches.length){
+    wrap.innerHTML=`<div style="text-align:center;padding:18px 10px;color:var(--text2);font-size:12px;border:1px dashed var(--border);border-radius:var(--rs)"><i class="ti ti-database-off" style="font-size:22px;display:block;margin-bottom:6px;color:#bbb"></i>No archived batches yet. Old data is auto-archived here next time you upload.</div>`;
+    return;
+  }
+  wrap.innerHTML=batches.map(b=>{
+    const d=new Date(b.when);
+    const when=d.toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    return `<div style="display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--border);border-radius:var(--rs);margin-bottom:8px;background:#fafbfd">
+      <div style="width:38px;height:38px;border-radius:8px;background:var(--green-l);color:var(--green);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-file-spreadsheet" style="font-size:20px"></i></div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><strong style="font-size:13px">${b.count.toLocaleString('en-IN')} customers</strong><span class="badge b-green"><i class="ti ti-lock" style="font-size:9px"></i> AES-256 encrypted</span>${b.linked?`<span class="badge b-blue"><i class="ti ti-link" style="font-size:9px"></i> Sheet linked</span>`:''}</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">Archived ${when} · Sheet ID <code style="background:#eef1f8;padding:1px 5px;border-radius:3px;font-size:10.5px">${b.hint}</code></div>
+        <div style="font-size:10.5px;color:#888;margin-top:3px;font-family:ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${b.enc.slice(0,72)}…</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="primary" onclick="event.stopPropagation();promptDecryptBatch('${b.id}')" style="font-size:11px;padding:7px 11px"><i class="ti ti-lock-open"></i> Decrypt</button>
+        <button onclick="event.stopPropagation();deleteBatch('${b.id}')" class="danger" style="font-size:11px;padding:7px 9px" title="Delete archive"><i class="ti ti-trash"></i></button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function deleteBatch(id){
+  if(!confirm('Permanently delete this archived batch? The encrypted Google Sheet link will be lost.')) return;
+  const batches=loadState('archived_batches',[]).filter(b=>b.id!==id);
+  saveState('archived_batches',batches);
+  renderArchivedBatches();
+}
+let _decryptTargetId=null;
+function promptDecryptBatch(id){
+  _decryptTargetId=id;
+  openModal('decrypt-modal');
+  setTimeout(()=>{document.getElementById('decrypt-pin').value='';document.getElementById('decrypt-pin').focus();document.getElementById('decrypt-result').innerHTML='';},50);
+}
+async function doDecryptBatch(){
+  const pin=document.getElementById('decrypt-pin').value.trim();
+  const res=document.getElementById('decrypt-result');
+  const batch=loadState('archived_batches',[]).find(b=>b.id===_decryptTargetId);
+  if(!batch){res.innerHTML='<span style="color:var(--red)">Batch not found.</span>';return;}
+  if(!pin){res.innerHTML='<span style="color:var(--red)">Enter admin PIN.</span>';return;}
+  try{
+    const plain=await _decryptKey(batch.enc,pin);
+    const data=JSON.parse(plain);
+    _activeDecryptPin=pin;_activeDecryptData=data;_activeDecryptBatchId=batch.id;
+    const hasRealSheet=data.realSheetUrl&&/^https:\/\/docs\.google\.com\/spreadsheets\//.test(data.realSheetUrl);
+    res.innerHTML=`
+      <div style="background:var(--green-l);border:1px solid var(--gold-border);border-radius:var(--rs);padding:12px;margin-top:12px">
+        <div style="font-size:11px;color:var(--green);font-weight:700;margin-bottom:8px"><i class="ti ti-lock-open"></i> DECRYPTED — ${data.count} customers</div>
+
+        ${hasRealSheet?`
+          <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Linked editable Google Sheet</div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
+            <input readonly value="${data.realSheetUrl}" style="font-size:11px;font-family:ui-monospace,monospace" id="dec-url-out">
+            <button onclick="copyText(document.getElementById('dec-url-out').value)" style="flex-shrink:0;font-size:11px" title="Copy"><i class="ti ti-copy"></i></button>
+          </div>
+          <a href="${data.realSheetUrl}" target="_blank" rel="noopener" class="primary" style="text-decoration:none;background:var(--green);color:#fff;padding:8px 14px;border-radius:var(--rs);font-size:12px;display:inline-flex;align-items:center;gap:5px;font-weight:700"><i class="ti ti-external-link"></i> Open editable Sheet</a>
+        `:`
+          <div style="font-size:12px;color:var(--text);margin-bottom:8px;line-height:1.5">Click below to open a <strong>blank editable Google Sheet</strong>. The ${data.count} archived rows will be copied to your clipboard — paste with <kbd style="background:#fff;border:1px solid #ccc;padding:1px 5px;border-radius:3px;font-size:10px">Ctrl+V</kbd> in cell A1.</div>
+          <button class="primary" onclick="createEditableSheet()" style="background:var(--green);border-color:var(--green);font-weight:700;padding:9px 16px;font-size:12px"><i class="ti ti-table-plus"></i> Create editable Google Sheet</button>
+          <div id="paste-step" style="display:none;margin-top:12px;padding:10px;background:#fff;border:1px solid var(--gold-border);border-radius:var(--rs)">
+            <div style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:6px"><i class="ti ti-check"></i> Data copied to clipboard. New Sheet opening...</div>
+            <ol style="font-size:11px;color:var(--text);padding-left:18px;line-height:1.7;margin-bottom:8px">
+              <li>In the new tab, click cell <strong>A1</strong></li>
+              <li>Press <kbd style="background:#f3f4f6;border:1px solid #ccc;padding:1px 5px;border-radius:3px;font-size:10px">Ctrl+V</kbd> (or <kbd style="background:#f3f4f6;border:1px solid #ccc;padding:1px 5px;border-radius:3px;font-size:10px">Cmd+V</kbd>) to paste</li>
+              <li>Copy the new Sheet's URL from the address bar and paste below to link it permanently</li>
+            </ol>
+            <div style="display:flex;gap:6px">
+              <input id="link-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/.../edit" style="font-size:11px">
+              <button class="primary" onclick="linkRealSheet()" style="font-size:11px;padding:7px 11px"><i class="ti ti-link"></i> Link &amp; re-encrypt</button>
+            </div>
+          </div>
+        `}
+
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--gold-border)">
+          <button onclick="copyText(_activeDecryptData.csv)" style="font-size:11px"><i class="ti ti-clipboard"></i> Copy CSV</button>
+          <button onclick="downloadArchivedCsv('${batch.id}')" style="font-size:11px"><i class="ti ti-download"></i> Download CSV</button>
+          ${hasRealSheet?`<button onclick="unlinkRealSheet()" style="font-size:11px;color:var(--text2)"><i class="ti ti-unlink"></i> Unlink Sheet</button>`:''}
+        </div>
+      </div>`;
+  }catch(e){
+    res.innerHTML='<span style="color:var(--red)"><i class="ti ti-alert-triangle"></i> Decryption failed — wrong PIN or corrupted ciphertext.</span>';
+  }
+}
+
+// State carried across the decrypt session so user can re-link a real Sheet
+let _activeDecryptPin=null,_activeDecryptData=null,_activeDecryptBatchId=null;
+
+function _csvToTsv(csv){
+  // RFC4180-ish parser → array of rows → join with tabs (Google Sheets paste format)
+  const out=[];let row=[],cur='',inQ=false;
+  for(let i=0;i<csv.length;i++){
+    const ch=csv[i];
+    if(inQ){
+      if(ch==='"'&&csv[i+1]==='"'){cur+='"';i++;}
+      else if(ch==='"'){inQ=false;}
+      else cur+=ch;
+    } else {
+      if(ch==='"') inQ=true;
+      else if(ch===','){row.push(cur);cur='';}
+      else if(ch==='\n'){row.push(cur);out.push(row);row=[];cur='';}
+      else if(ch==='\r'){/*skip*/}
+      else cur+=ch;
+    }
+  }
+  if(cur.length||row.length){row.push(cur);out.push(row);}
+  return out.map(r=>r.map(c=>c.replace(/\t/g,' ').replace(/\n/g,' ')).join('\t')).join('\n');
+}
+
+async function copyText(t){
+  try{await navigator.clipboard.writeText(t);showToast('Copied to clipboard');}
+  catch(e){
+    const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');showToast('Copied to clipboard');}catch(_){alert('Copy failed — your browser blocked clipboard access.');}
+    ta.remove();
+  }
+}
+
+async function createEditableSheet(){
+  if(!_activeDecryptData) return;
+  const tsv=_csvToTsv(_activeDecryptData.csv);
+  await copyText(tsv);
+  // sheets.new opens a fresh editable Google Sheet (requires the user to be signed in to Google)
+  window.open('https://sheets.new','_blank','noopener');
+  document.getElementById('paste-step').style.display='block';
+}
+
+async function linkRealSheet(){
+  const url=document.getElementById('link-sheet-url').value.trim();
+  if(!/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_\-]+/.test(url)){
+    alert('That doesn\u2019t look like a Google Sheet URL. Expected https://docs.google.com/spreadsheets/d/...');
+    return;
+  }
+  // Re-encrypt the archive payload with the real URL attached
+  const newPayload={..._activeDecryptData,realSheetUrl:url};
+  const ct=await _encryptKey(JSON.stringify(newPayload),_activeDecryptPin);
+  const batches=loadState('archived_batches',[]);
+  const idx=batches.findIndex(b=>b.id===_activeDecryptBatchId);
+  if(idx<0){alert('Archive not found.');return;}
+  batches[idx].enc=ct;
+  batches[idx].linked=true;
+  saveState('archived_batches',batches);
+  _activeDecryptData=newPayload;
+  showToast('Sheet linked & re-encrypted');
+  // Re-render the decrypted panel with the linked URL
+  document.getElementById('decrypt-pin').value=_activeDecryptPin;
+  doDecryptBatch();
+  renderArchivedBatches();
+}
+
+async function unlinkRealSheet(){
+  if(!confirm('Unlink this Google Sheet from the archive? You can re-link a different one later.')) return;
+  const stripped={..._activeDecryptData};delete stripped.realSheetUrl;
+  const ct=await _encryptKey(JSON.stringify(stripped),_activeDecryptPin);
+  const batches=loadState('archived_batches',[]);
+  const idx=batches.findIndex(b=>b.id===_activeDecryptBatchId);
+  if(idx<0) return;
+  batches[idx].enc=ct;batches[idx].linked=false;
+  saveState('archived_batches',batches);
+  _activeDecryptData=stripped;
+  document.getElementById('decrypt-pin').value=_activeDecryptPin;
+  doDecryptBatch();
+  renderArchivedBatches();
+}
+
+function copyDecryptedUrl(){
+  const inp=document.getElementById('dec-url-out');
+  if(inp) copyText(inp.value);
+}
+async function downloadArchivedCsv(id){
+  const batch=loadState('archived_batches',[]).find(b=>b.id===id);
+  if(!batch) return;
+  const pin=_activeDecryptPin||prompt('Enter admin PIN to decrypt CSV:');
+  if(!pin) return;
+  try{
+    const data=JSON.parse(await _decryptKey(batch.enc,pin));
+    const blob=new Blob([data.csv],{type:'text/csv'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=`sns_archive_${new Date(batch.when).toISOString().slice(0,10)}.csv`;a.click();
+    URL.revokeObjectURL(url);
+  }catch(e){alert('Decryption failed — wrong PIN.');}
+}
+
+async function importFromRowObjects(rows,msg){
+  const activeCals=callers.filter(c=>c.active);
+  const uploadedAt=Date.now();
+  const newC=rows.filter(r=>Object.values(r).some(v=>String(v).trim())).map((r,i)=>{
+    // normalize keys
+    const o={};Object.entries(r).forEach(([k,v])=>o[normalizeKey(k)]=String(v).trim());
+    const score=60+Math.floor(Math.random()*35);
+    const cal=activeCals[i%activeCals.length];
+    const name=o.name||o.first_name||o.customer_name||o.full_name||'Unknown';
+    const phone=o.phone||o.mobile||o.phone_number||o.glusr_usr_ph_mobile||'';
+    const pin=o.pin||o.pincode||o.zip||o.postal_code||'—';
+    return{id:Date.now()+i,name,company:o.company||o.company_name||o.business||'',designation:o.designation||o.role||o.title||'',email:o.email||o.email_id||o.email1||'',phone,pin,city:o.city||o.town||'',score,eligibility:score>=80?'High':score>=60?'Moderate':'Low',loan:score>=80?'Business / MSME Loan':'Personal Loan',callerId:cal?cal.id:'',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:'',uploadedAt,lastCalledAt:null,callCount:0,lastWaAt:null,waCount:0};
+  });
+  if(!newC.length){msg.innerHTML='<span style="color:var(--red)">✗ No valid rows found. Check column headers.</span>';return;}
+  msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Archiving old data → pushing to Google Sheet...</span>';
+  const batch=await archiveOldData(customers);
+  customers=newC;save();
+  if(window.__cloudReady&&window.CloudSync&&CloudSync.isAuthed){
+    setSyncStatus('saving');
+    CloudSync.replaceCustomers(newC).then(()=>setSyncStatus('saved')).catch(e=>setSyncStatus('error',e.message));
+  }
+  const archMsg=_archMsgFor(batch);
+  msg.innerHTML=`<span style="color:#27500A">✓ ${newC.length} customers imported &amp; auto-assigned from Excel.</span>${archMsg}`;
+  adminFilter();renderArchivedBatches();
+}
+
+async function importFromCSVText(text,msg){
+  const lines=text.split('\n').filter(r=>r.trim());
+  if(lines.length<2){msg.innerHTML='<span style="color:var(--red)">✗ Empty CSV.</span>';return;}
+  const headers=lines[0].split(',').map(h=>normalizeKey(h.replace(/"/g,'')));
+  const activeCals=callers.filter(c=>c.active);
+  const uploadedAt=Date.now();
+  const newC=lines.slice(1).filter(r=>r.trim()).map((row,i)=>{
+    const vals=row.split(',').map(v=>v.trim().replace(/"/g,''));
+    const o={};headers.forEach((h,j)=>o[h]=vals[j]||'');
+    const cal=activeCals[i%activeCals.length];
+    const score=60+Math.floor(Math.random()*35);
+    const name=o.name||o.first_name||o.customer_name||'Unknown';
+    const phone=o.phone||o.mobile||o.glusr_usr_ph_mobile||'';
+    const pin=o.pin||o.pincode||o.zip||'—';
+    return{id:Date.now()+i,name,company:o.company||o.company_name||'',designation:o.designation||'',email:o.email||o.email1||'',phone,pin,city:o.city||'',score,eligibility:score>=80?'High':score>=60?'Moderate':'Low',loan:score>=80?'Business / MSME Loan':'Personal Loan',callerId:cal?cal.id:'',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:'',uploadedAt,lastCalledAt:null,callCount:0,lastWaAt:null,waCount:0};
+  });
+  if(!newC.length){msg.innerHTML='<span style="color:var(--red)">✗ No valid rows found.</span>';return;}
+  msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Archiving old data → pushing to Google Sheet...</span>';
+  const batch=await archiveOldData(customers);
+  customers=newC;save();
+  if(window.__cloudReady&&window.CloudSync&&CloudSync.isAuthed){
+    setSyncStatus('saving');
+    CloudSync.replaceCustomers(newC).then(()=>setSyncStatus('saved')).catch(e=>setSyncStatus('error',e.message));
+  }
+  const archMsg=_archMsgFor(batch);
+  msg.innerHTML=`<span style="color:#27500A">✓ ${newC.length} customers imported &amp; auto-assigned from CSV.</span>${archMsg}`;
+  adminFilter();renderArchivedBatches();
+}
+
+function _archMsgFor(batch){
+  if(!batch) return '';
+  if(batch.pushed) return ` · <span class="badge b-green" style="font-size:9px"><i class="ti ti-cloud-check" style="font-size:9px"></i> ${batch.count} rows pushed to Google Sheet</span>`;
+  const hasWebhook=!!loadState('gsheet_webhook_enc',null);
+  if(hasWebhook) return ` · <span class="badge b-amber" style="font-size:9px"><i class="ti ti-alert-triangle" style="font-size:9px"></i> ${batch.count} archived locally — Sheet push failed (check Settings → Test push)</span>`;
+  return ` · <span class="badge b-amber" style="font-size:9px"><i class="ti ti-lock" style="font-size:8px"></i> ${batch.count} archived locally (AES-256) — configure webhook in Settings to auto-push</span>`;
+}
+
+async function enrichAll(){
+  const btn=event.target.closest('button');
+  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Enriching...';
+  const msg=document.getElementById('upload-msg');
+  const pending=customers.filter(c=>!c.enriched);
+  for(let i=0;i<pending.length;i++){
+    const c=pending[i];
+    msg.innerHTML=`<span style="color:var(--blue)">AI enriching ${i+1}/${pending.length}: ${c.name}...</span>`;
+    try{c.aiInsight=await getAIInsight(c);c.enriched=true;}
+    catch(e){c.aiInsight='Insight pending — check AI settings.';}
+    await new Promise(r=>setTimeout(r,600));
+  }
+  save();msg.innerHTML=`<span style="color:#27500A">✓ Enrichment complete.</span>`;
+  btn.disabled=false;btn.innerHTML='<i class="ti ti-brain"></i> AI enrich all';
+  adminFilter();
+}
+
+// ── ASSIGN MODAL ───────────────────────────────────────────────────
+function renderAssignModal(){
+  _assignMode='manual';
+  document.getElementById('assign-body').innerHTML=`<div style="font-size:13px;color:var(--text);line-height:1.6;padding:12px;background:#fafbfd;border:1px solid var(--border);border-radius:var(--rs);margin-top:8px">Pick a method:
+    <ul style="margin:6px 0 0 18px;padding:0">
+      <li><strong>Auto-assign evenly</strong> — round-robin distribution across active callers</li>
+      <li><strong>Assign by %</strong> — set each caller's share of the pool (e.g. 50/30/20)</li>
+      <li><strong>Manual assign</strong> — pick the caller for each customer individually</li>
+    </ul>
+  </div>`;
+}
+
+function autoAssign(){
+  _assignMode='auto';
+  const active=callers.filter(c=>c.active);
+  if(!active.length){showToast('No active callers!','#A32D2D');return;}
+  customers.forEach((c,i)=>c.callerId=active[i%active.length].id);
+  save();showToast(`Auto-assigned ${customers.length} contacts across ${active.length} callers`);
+  closeModal('assign-modal');adminFilter();
+}
+
+function renderManualAssign(){
+  _assignMode='manual';
+  const body=document.getElementById('assign-body');
+  body.innerHTML=`<div style="max-height:340px;overflow-y:auto;margin-top:12px">
+  <table class="tbl">
+    <thead><tr><th>Customer</th><th>Company</th><th>Assign to</th></tr></thead>
+    <tbody>${customers.map(c=>`<tr><td style="font-weight:600;font-size:12px">${c.name}</td><td style="font-size:11px;color:var(--text2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.company}</td><td><select id="as-${c.id}" style="font-size:12px;padding:4px 6px">${callers.filter(x=>x.active).map(cal=>`<option value="${cal.id}"${cal.id===c.callerId?' selected':''}>${cal.name}</option>`).join('')}</select></td></tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+// ── ASSIGN BY PERCENTAGE ──────────────────────────────────────────
+let _assignMode='manual'; // 'manual' | 'percent'
+function renderPercentAssign(){
+  _assignMode='percent';
+  const active=callers.filter(c=>c.active);
+  if(!active.length){showToast('No active callers!','#A32D2D');return;}
+  // Default to even split (rounded)
+  const even=Math.floor(100/active.length);
+  const remainder=100-even*active.length;
+  const defaults={};active.forEach((c,i)=>defaults[c.id]=even+(i<remainder?1:0));
+  // If we previously saved %s, use them
+  const saved=loadState('assign_pct',null);
+  const pct=(saved&&active.every(c=>typeof saved[c.id]==='number'))?saved:defaults;
+
+  const body=document.getElementById('assign-body');
+  body.innerHTML=`
+    <div style="background:var(--green-l);border:1px solid #A8D8BC;border-radius:var(--rs);padding:10px 12px;margin-top:12px;margin-bottom:12px;font-size:12px;color:var(--text);line-height:1.5">
+      <strong style="color:var(--green)"><i class="ti ti-info-circle"></i> How it works:</strong> Set each caller's share of the customer pool. Total must equal 100%. The system will randomly shuffle customers and distribute them by your chosen weights (using largest-remainder rounding so counts add up exactly).
+    </div>
+    <div id="pct-rows">${active.map(c=>{
+      const v=pct[c.id]||0;
+      const [bg,fg]=AVATAR_COLORS[c.color%AVATAR_COLORS.length];
+      return `<div style="display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #f0f0f0">
+        <div class="avatar" style="width:36px;height:36px;font-size:12px;background:${bg};color:${fg}">${initials(c.name)}</div>
+        <div>
+          <div style="font-weight:700;font-size:13px">${c.name}</div>
+          <input type="range" min="0" max="100" step="1" value="${v}" id="pct-rng-${c.id}" oninput="onPctChange('${c.id}')" style="width:100%;margin-top:6px;accent-color:var(--green)">
+        </div>
+        <div style="display:flex;align-items:center;gap:4px">
+          <input type="number" min="0" max="100" step="1" value="${v}" id="pct-num-${c.id}" onchange="onPctChange('${c.id}',true)" style="width:64px;font-size:13px;font-weight:700;text-align:center;padding:6px">
+          <span style="font-weight:700;color:var(--text2)">%</span>
+        </div>
+        <div id="pct-est-${c.id}" style="font-size:11px;color:var(--text2);min-width:70px;text-align:right">— rows</div>
+      </div>`;
+    }).join('')}</div>
+    <div id="pct-totalbar" style="margin-top:14px;padding:12px;border-radius:var(--rs);background:#fafbfd;border:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.05em;text-transform:uppercase">Total allocation</div>
+        <div id="pct-total" style="font-size:22px;font-weight:800;margin-top:2px">100%</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button onclick="resetPctEven()" style="font-size:11px"><i class="ti ti-arrows-shuffle"></i> Reset to even</button>
+        <button onclick="normalizePct()" style="font-size:11px"><i class="ti ti-scale"></i> Normalize to 100%</button>
+      </div>
+    </div>
+    <div id="pct-warn" style="font-size:11.5px;margin-top:8px;display:none"></div>`;
+  recomputePctEstimates();
+}
+
+function onPctChange(callerId,fromNumber){
+  const rng=document.getElementById('pct-rng-'+callerId);
+  const num=document.getElementById('pct-num-'+callerId);
+  if(fromNumber){
+    let v=Math.max(0,Math.min(100,parseInt(num.value||'0',10)));
+    num.value=v;rng.value=v;
+  } else {
+    num.value=rng.value;
+  }
+  recomputePctEstimates();
+}
+
+function _readPct(){
+  const active=callers.filter(c=>c.active);
+  const out={};active.forEach(c=>{
+    const el=document.getElementById('pct-num-'+c.id);
+    out[c.id]=el?Math.max(0,parseInt(el.value||'0',10)):0;
+  });
+  return out;
+}
+
+function recomputePctEstimates(){
+  const pct=_readPct();
+  const total=Object.values(pct).reduce((a,b)=>a+b,0);
+  const totEl=document.getElementById('pct-total');
+  const warnEl=document.getElementById('pct-warn');
+  const barEl=document.getElementById('pct-totalbar');
+  if(totEl){totEl.textContent=total+'%';totEl.style.color=total===100?'var(--green)':total>100?'var(--red)':'var(--amber)';}
+  if(barEl) barEl.style.borderColor=total===100?'#A8D8BC':total>100?'#f0c0c0':'#f0c070';
+  if(warnEl){
+    if(total===100){warnEl.style.display='none';}
+    else if(total>100){warnEl.style.display='block';warnEl.innerHTML=`<span style="color:var(--red)"><i class="ti ti-alert-triangle"></i> Total is ${total}% — over by ${total-100}. Reduce shares or click "Normalize to 100%".</span>`;}
+    else {warnEl.style.display='block';warnEl.innerHTML=`<span style="color:var(--amber)"><i class="ti ti-alert-triangle"></i> Total is ${total}% — short by ${100-total}. Increase shares or click "Normalize to 100%".</span>`;}
+  }
+  // live row estimates (largest-remainder)
+  const counts=_largestRemainder(customers.length,pct);
+  Object.entries(counts).forEach(([id,n])=>{
+    const el=document.getElementById('pct-est-'+id);
+    if(el) el.textContent=`≈ ${n} row${n===1?'':'s'}`;
+  });
+}
+
+function _largestRemainder(N,pctMap){
+  // Distribute N items by percent map using Hamilton/largest-remainder method
+  const ids=Object.keys(pctMap);
+  const sum=ids.reduce((a,k)=>a+pctMap[k],0)||1;
+  const raw={},floor={},rem={};
+  ids.forEach(id=>{
+    raw[id]=N*pctMap[id]/sum;
+    floor[id]=Math.floor(raw[id]);
+    rem[id]=raw[id]-floor[id];
+  });
+  let allocated=ids.reduce((a,k)=>a+floor[k],0);
+  let leftover=N-allocated;
+  const ranked=[...ids].sort((a,b)=>rem[b]-rem[a]);
+  for(let i=0;i<leftover;i++){floor[ranked[i%ranked.length]]+=1;}
+  return floor;
+}
+
+function resetPctEven(){
+  const active=callers.filter(c=>c.active);
+  const even=Math.floor(100/active.length),rem=100-even*active.length;
+  active.forEach((c,i)=>{
+    const v=even+(i<rem?1:0);
+    document.getElementById('pct-num-'+c.id).value=v;
+    document.getElementById('pct-rng-'+c.id).value=v;
+  });
+  recomputePctEstimates();
+}
+
+function normalizePct(){
+  const pct=_readPct();
+  const total=Object.values(pct).reduce((a,b)=>a+b,0);
+  if(total===0){resetPctEven();return;}
+  const scaled={};Object.entries(pct).forEach(([k,v])=>{scaled[k]=Math.round(v*100/total);});
+  // Fix rounding so it sums to exactly 100
+  let s=Object.values(scaled).reduce((a,b)=>a+b,0);
+  const keys=Object.keys(scaled).sort((a,b)=>(pct[b]*100/total-Math.round(pct[b]*100/total))-(pct[a]*100/total-Math.round(pct[a]*100/total)));
+  let i=0;while(s!==100&&keys.length){scaled[keys[i%keys.length]]+=s<100?1:-1;s+=s<100?1:-1;i++;if(i>200)break;}
+  Object.entries(scaled).forEach(([id,v])=>{
+    document.getElementById('pct-num-'+id).value=v;
+    document.getElementById('pct-rng-'+id).value=v;
+  });
+  recomputePctEstimates();
+}
+
+function applyPercentAssign(){
+  const pct=_readPct();
+  const total=Object.values(pct).reduce((a,b)=>a+b,0);
+  if(total!==100){
+    if(!confirm(`Total is ${total}%. Auto-normalize to 100% and continue?`)) return;
+    normalizePct();
+  }
+  const finalPct=_readPct();
+  saveState('assign_pct',finalPct);
+  const counts=_largestRemainder(customers.length,finalPct);
+  // Shuffle customer order so it's randomized, not just the first N to caller A
+  const order=[...customers];
+  for(let i=order.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]];}
+  let cursor=0;
+  Object.entries(counts).forEach(([callerId,n])=>{
+    for(let i=0;i<n;i++){
+      if(order[cursor]) order[cursor].callerId=callerId;
+      cursor++;
+    }
+  });
+  save();
+  const summary=Object.entries(counts).map(([id,n])=>{
+    const cal=callers.find(c=>c.id===id);return `${cal?cal.name:id}: ${n} (${finalPct[id]}%)`;
+  }).join(' · ');
+  showToast(`Allocated by %: ${summary}`);
+  closeModal('assign-modal');adminFilter();
+}
+
+function saveAssignments(){
+  if(_assignMode==='percent'){applyPercentAssign();return;}
+  customers.forEach(c=>{
+    const el=document.getElementById('as-'+c.id);
+    if(el) c.callerId=el.value;
+  });
+  save();showToast('Assignments saved');closeModal('assign-modal');adminFilter();
+}
+
+function openModal(id){document.getElementById(id).className='modal-overlay open';}
+
+// ── CALLER ──────────────────────────────────────────────────────────
+let _callerFilter={status:'all',callerId:'all',q:''};
+
+function renderCaller(){
+  _callerFilter={status:'all',callerId:'all',q:''};
+  const myId=currentCallerId;
+  const allActive=currentRole==='admin';
+  const baseList=allActive?customers:customers.filter(c=>c.callerId===myId);
+  const done=baseList.filter(c=>c.status!=='Not Called').length;
+  const interested=baseList.filter(c=>c.status==='Interested').length;
+
+  // Pre-compute all dynamic HTML before the template to avoid nested-backtick issues
+  const adminBar=currentRole==='admin'
+    ?'<div style="margin-bottom:10px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">'
+     +'<span style="font-size:11px;font-weight:700;color:var(--text2);margin-right:2px;letter-spacing:.05em">CALLER:</span>'
+     +callers.filter(x=>x.active).map(x=>'<span class="caller-chip" onclick="filterCallerView(\''+x.id+'\',this)">'+x.name+'</span>').join('')
+     +'<span class="caller-chip active-c" onclick="filterCallerView(\'all\',this)">All</span></div>'
+    :'';
+
+  const filterStatuses=[
+    {key:'Not Called',label:'Not Called'},
+    {key:'Interested',label:'Interested'},
+    {key:'Follow Up',label:'Follow Up'},
+    {key:'Callback Requested',label:'Callback'},
+    {key:'Not Reachable',label:'Not Reachable'}
+  ];
+  const chips=filterStatuses.map(function(fs){
+    const n=baseList.filter(c=>c.status===fs.key).length;
+    const col=STATUS_COLOR[fs.key]||'#888';
+    return '<span class="f-chip" data-fk="'+fs.key+'" onclick="setCallerFilter(\''+fs.key+'\',this)">'
+      +'<span class="dot" style="background:'+col+'"></span>'+fs.label
+      +' <span class="fc">'+n+'</span></span>';
+  }).join('');
+
+  // Quick-action filter counts
+  const callableCount=baseList.filter(function(c){const p=c.phone!=null?String(c.phone):'';return p&&p!=='—'&&p.trim()!=='';}).length;
+  const sharedCount=baseList.filter(c=>(c.waCount||0)>0).length;
+
+  const cards=baseList.map(c=>callerCard(c)).join('');
+
+  document.getElementById('page-caller').innerHTML=
+    '<div class="g4" style="margin-bottom:14px">'
+    +'<div class="mc"><div class="mc-v" id="mc-assigned">'+baseList.length+'</div><div class="mc-l">Assigned</div></div>'
+    +'<div class="mc"><div class="mc-v" id="mc-done">'+done+'</div><div class="mc-l">Called</div></div>'
+    +'<div class="mc"><div class="mc-v" id="mc-remaining">'+(baseList.length-done)+'</div><div class="mc-l">Remaining</div></div>'
+    +'<div class="mc"><div class="mc-v" id="mc-interested">'+interested+'</div><div class="mc-l">Interested</div></div>'
+    +'</div>'
+    +adminBar
+    +'<div style="position:relative;margin-bottom:10px">'
+    +'<i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text2);font-size:14px;pointer-events:none"></i>'
+    +'<input type="text" id="caller-search" placeholder="Search by name, company or phone…" style="padding-left:32px" oninput="filterCallerCards()">'
+    +'</div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">'
+    +'<span style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.05em">STATUS:</span>'
+    +'<span class="f-chip active-f" data-fk="all" onclick="setCallerFilter(\'all\',this)">All <span class="fc">'+baseList.length+'</span></span>'
+    +chips
+    +'</div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:14px">'
+    +'<span style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.05em">QUICK:</span>'
+    +'<span class="f-chip" data-fk="callable" onclick="setCallerFilter(\'callable\',this)"><i class="ti ti-phone-call" style="font-size:11px;color:#1B6B3A"></i> Call Now <span class="fc">'+callableCount+'</span></span>'
+    +'<span class="f-chip" data-fk="shared" onclick="setCallerFilter(\'shared\',this)"><i class="ti ti-brand-whatsapp" style="font-size:11px;color:#25D366"></i> WA Shared <span class="fc">'+sharedCount+'</span></span>'
+    +'</div>'
+    +'<div id="caller-cards">'+cards+'</div>';
+}
+
+function filterCallerView(callerId,el){
+  document.querySelectorAll('.caller-chip').forEach(c=>c.className='caller-chip');
+  el.className='caller-chip active-c';
+  _callerFilter.callerId=callerId;
+  filterCallerCards();
+}
+
+function setCallerFilter(status,el){
+  document.querySelectorAll('.f-chip').forEach(c=>c.classList.remove('active-f'));
+  el.classList.add('active-f');
+  _callerFilter.status=status;
+  filterCallerCards();
+}
+
+function filterCallerCards(){
+  const allActive=currentRole==='admin';
+  let list=allActive?customers:customers.filter(c=>c.callerId===currentCallerId);
+  if(allActive&&_callerFilter.callerId!=='all') list=list.filter(c=>c.callerId===_callerFilter.callerId);
+  const st=_callerFilter.status;
+  if(st==='callable') list=list.filter(function(c){const p=c.phone!=null?String(c.phone):'';return p&&p!=='—'&&p.trim()!=='';});
+  else if(st==='shared') list=list.filter(c=>(c.waCount||0)>0);
+  else if(st!=='all') list=list.filter(c=>c.status===st);
+  const q=(document.getElementById('caller-search')?.value||'').toLowerCase().trim();
+  if(q) list=list.filter(c=>(c.name||'').toLowerCase().includes(q)||(c.company||'').toLowerCase().includes(q)||String(c.phone||'').includes(q));
+  document.getElementById('caller-cards').innerHTML=list.length
+    ?list.map(c=>callerCard(c)).join('')
+    :`<div style="text-align:center;padding:40px 20px;color:var(--text2)"><i class="ti ti-search-off" style="font-size:36px;display:block;margin-bottom:8px"></i><div style="font-weight:600">No contacts match</div><div style="font-size:12px;margin-top:4px">Try a different filter or search term</div></div>`;
+}
+
+function _refreshCallerStats(){
+  const allActive=currentRole==='admin';
+  const base=allActive?customers:customers.filter(c=>c.callerId===currentCallerId);
+  const done=base.filter(c=>c.status!=='Not Called').length;
+  const interested=base.filter(c=>c.status==='Interested').length;
+  const el_a=document.getElementById('mc-assigned');   if(el_a)el_a.textContent=base.length;
+  const el_d=document.getElementById('mc-done');        if(el_d)el_d.textContent=done;
+  const el_r=document.getElementById('mc-remaining');   if(el_r)el_r.textContent=base.length-done;
+  const el_i=document.getElementById('mc-interested');  if(el_i)el_i.textContent=interested;
+  document.querySelectorAll('.f-chip[data-fk]').forEach(function(chip){
+    const key=chip.dataset.fk;
+    const fc=chip.querySelector('.fc');
+    if(!fc) return;
+    var n;
+    if(key==='all') n=base.length;
+    else if(key==='callable') n=base.filter(function(c){var p=c.phone!=null?String(c.phone):'';return p&&p!=='—'&&p.trim()!=='';}).length;
+    else if(key==='shared') n=base.filter(function(c){return(c.waCount||0)>0;}).length;
+    else n=base.filter(function(c){return c.status===key;}).length;
+    fc.textContent=n;
+  });
+}
+
+function callerCard(c){
+  const [bg,fg]=ac(c.name);
+  const area=c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city;
+  const phone=c.phone!=null?String(c.phone):'';
+  const hasPhone=phone&&phone!=='—'&&phone.trim()!=='';
+  return`<div class="card caller-card-inner" id="cc-${c.id}" style="border-left:4px solid ${scoreColor(c.score)};margin-bottom:12px">
+
+  <!-- HEADER ROW -->
+  <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
+    <div class="avatar" style="width:44px;height:44px;font-size:15px;background:${bg};color:${fg};border:2px solid var(--border)">${initials(c.name)}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:15px;font-weight:800;color:var(--navy)">${c.name}</div>
+      <div style="font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.company}</div>
+      <div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:12px;font-weight:800;color:${scoreColor(c.score)}">Score ${c.score}</span>
+        <span class="badge b-green">${c.eligibility}</span>
+        <span class="badge b-gold" style="font-size:9px">${c.loan}</span>
+        ${currentRole==='admin'?`<span class="badge b-gray" style="font-size:9px">${callerName(c.callerId)}</span>`:''}
+      </div>
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <div style="font-size:11px;color:var(--text2)">${area}</div>
+      <div style="font-size:10px;color:var(--text2);margin-top:1px">${c.email||'—'}</div>
+    </div>
+  </div>
+
+  <!-- CALL SECTION -->
+  <div style="background:var(--navy);border-radius:var(--rs);padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.5);letter-spacing:.08em;margin-bottom:3px">CUSTOMER PHONE</div>
+      <div style="font-size:18px;font-weight:800;color:var(--gold-l);letter-spacing:0.02em">${hasPhone?phone:'Not available'}</div>
+    </div>
+    ${hasPhone?`<a href="tel:${phone}" class="btn-call-now" onclick="trackCall(${c.id},event)">
+      <i class="ti ti-phone-call"></i> Call Now
+    </a>`:`<span style="font-size:11px;color:rgba(255,255,255,0.4)">No phone on record</span>`}
+  </div>
+  <div class="call-notice">
+    <i class="ti ti-info-circle"></i>
+    Tap <strong style="margin:0 3px">Call Now</strong> to call directly from this app — no need to dial manually.
+  </div>
+
+  <!-- AI INSIGHT -->
+  <div class="ai-box" style="margin-bottom:10px">
+    <div style="font-size:10px;font-weight:700;color:var(--gold);margin-bottom:5px;letter-spacing:.06em">AI INSIGHT <span style="background:var(--navy);color:rgba(255,255,255,0.7);padding:1px 6px;border-radius:4px;font-size:9px;margin-left:4px">${aiCfg.provider.toUpperCase()}</span></div>
+    ${c.enriched&&c.aiInsight
+      ?`<div style="font-size:12px;line-height:1.7;color:var(--text)">${c.aiInsight}</div>`
+      :`<div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;color:var(--text2)">Not enriched yet</span><button onclick="enrichOne(${c.id},this)" style="font-size:11px;padding:5px 10px"><i class="ti ti-brain"></i> Generate</button></div>`}
+  </div>
+
+  <!-- STATUS + CALLBACK -->
+  <div class="g2" style="margin-bottom:10px">
+    <div>
+      <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:5px;letter-spacing:.06em">CALL STATUS</div>
+      <select id="st-${c.id}" style="font-size:13px">
+        ${STATUSES.map(s=>`<option${s===c.status?' selected':''}>${s}</option>`).join('')}
+      </select>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:5px;letter-spacing:.06em">CALLBACK DATE/TIME</div>
+      <input type="datetime-local" id="cb-${c.id}" style="font-size:12px">
+    </div>
+  </div>
+
+  <!-- COMMENTS -->
+  <div style="margin-bottom:10px">
+    <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:5px;letter-spacing:.06em">CALL NOTES</div>
+    <textarea id="cm-${c.id}" rows="2" placeholder="Customer response, next steps, loan interest...">${c.comments}</textarea>
+  </div>
+
+  <!-- ACTIONS -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <button class="primary" onclick="saveCall(${c.id})"><i class="ti ti-device-floppy"></i> Save</button>
+    <button onclick="openProfile(${c.id})"><i class="ti ti-eye"></i> Profile</button>
+    ${hasPhone?`<a href="tel:${phone}" class="btn-call-now" style="font-size:12px;padding:7px 14px" onclick="trackCall(${c.id},event)"><i class="ti ti-phone"></i> ${phone}</a>`:''}
+    <button onclick="event.stopPropagation();waShare(${c.id})" style="background:#25D366;color:#fff;border-color:#25D366;font-size:12px;padding:7px 12px" title="Share via WhatsApp"><i class="ti ti-brand-whatsapp"></i> Share</button>
+    ${c.callHistory.length?`<span class="badge b-gray">${c.callHistory.length} call${c.callHistory.length>1?'s':''}</span>`:''}
+  </div>
+
+  <!-- CALL HISTORY -->
+  ${c.callHistory.length?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+    <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:6px;letter-spacing:.06em">CALL HISTORY</div>
+    ${c.callHistory.slice(-3).map(h=>`<div style="display:flex;gap:8px;font-size:11px;padding:4px 0;border-bottom:1px solid #f5f5f5;flex-wrap:wrap">
+      <span style="color:var(--text2);min-width:70px">${h.date}</span>
+      <span style="font-weight:700;min-width:110px;color:${STATUS_COLOR[h.status]}">${h.status}</span>
+      <span style="color:var(--text2)">${h.comment}</span>
+    </div>`).join('')}
+  </div>`:''}
+</div>`;
+}
+
+// ── WHATSAPP SHARE ─────────────────────────────────────────────────
+function waShare(id){
+  const c=customers.find(x=>x.id===id);
+  if(!c) return;
+  // track the share action
+  c.lastWaAt=Date.now();
+  c.waCount=(c.waCount||0)+1;
+  save();
+  const area=c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city;
+  const score_label=c.score>=80?'High':c.score>=60?'Moderate':'Low';
+  const status_emoji={'Not Called':'⬜','Interested':'✅','Follow Up':'🔁','Not Reachable':'📵','Wrong Number':'❌','Not Interested':'🚫','Already Has Loan':'💰','Callback Requested':'📞'}[c.status]||'📋';
+  const callerNote=c.comments?`
+📝 Notes: ${c.comments}`:'';
+  const history=c.callHistory.length?`
+📅 Last call: ${c.callHistory.slice(-1)[0].date} — ${c.callHistory.slice(-1)[0].status}`:'';
+  const msg=
+`${status_emoji} *SNS Financial Services — Lead Update*
+
+👤 *${c.name}*
+🏢 ${c.company}${c.designation?' · '+c.designation:''}
+📍 ${area}${c.pin!=='—'?' ('+c.pin+')':''}
+📞 ${c.phone||'N/A'}
+✉️ ${c.email||'N/A'}
+
+💼 Loan: *${c.loan}*
+📊 Score: *${c.score}/100* (${c.eligibility} eligibility)
+${status_emoji} Status: *${c.status}*${callerNote}${history}
+
+_Shared from SNS LoanIQ CRM · ${today()}_`;
+
+  const url='https://wa.me/?text='+encodeURIComponent(msg);
+  window.open(url,'_blank','noopener');
+}
+
+function saveCall(id){
+  const c=customers.find(x=>x.id===id);
+  const ns=document.getElementById('st-'+id).value;
+  const comment=document.getElementById('cm-'+id).value.trim();
+  c.status=ns;c.comments=comment;
+  c.callHistory.push({date:today(),caller:currentUser,status:ns,comment:comment||'Status: '+ns});
+  save();
+  _refreshCallerStats();
+  filterCallerCards();
+  showToast('✓ Saved — '+ns);
+}
+
+async function enrichOne(id,btn){
+  const c=customers.find(x=>x.id===id);
+  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Generating...';
+  try{c.aiInsight=await getAIInsight(c);c.enriched=true;save();document.getElementById('cc-'+id).outerHTML=callerCard(c);}
+  catch(e){btn.disabled=false;btn.innerHTML='<i class="ti ti-brain"></i> Generate';showToast('Error: Check AI settings','#A32D2D');}
+}
+
+// ── AI ENGINE ──────────────────────────────────────────────────────
+function ruleInsight(c){
+  const area=c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city;
+  const sector=SECTOR_MAP[c.company]||'Business';
+  const desig=c.designation.toLowerCase();
+  const isOwner=desig.includes('owner')||desig.includes('proprietor')||desig.includes('director')||desig.includes('managing');
+  const loanRange=c.score>=90?'₹10–25 lakhs':c.score>=80?'₹5–15 lakhs':c.score>=60?'₹2–8 lakhs':'₹50K–2 lakhs';
+  const risk=c.score>=85?'Low risk, fast-track KYC.':c.score>=70?'Moderate risk, verify income proof.':'High risk, collect full documentation first.';
+  return `${c.name} is ${isOwner?'a business owner':'employed'} in ${sector} based in ${area}. ${isOwner?'Self-employed profile — high likelihood of working capital or expansion loan need.':'Salaried profile — personal or vehicle loan most likely.'} Recommend ${c.loan} of ${loanRange}. ${risk} Caller tip: Lead with ${c.score>=80?'fast processing and low interest rate':'flexible repayment options'}.`;
+}
+
+async function getAIInsight(c){
+  const prompt=`You are a loan officer AI giving a caller a brief. 3 sentences only. Customer: ${c.name}, Company: ${c.company}, Role: ${c.designation}, Sector: ${SECTOR_MAP[c.company]||'Business'}, Location: ${c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city}, Score: ${c.score}/100, Loan: ${c.loan}. Cover: business strength, recommended loan amount in INR, one specific action for the caller.`;
+  if(aiCfg.provider==='rule') return ruleInsight(c);
+  // Use in-memory decrypted key ONLY — never aiCfg.key (always empty)
+  const key = _decryptedApiKey;
+  if(!key) return ruleInsight(c)+'  [AI key locked — open AI Settings and enter Master Password to unlock]';
+  try{
+    if(aiCfg.provider==='groq'){
+      const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:aiCfg.model,max_tokens:200,messages:[{role:'user',content:prompt}]})});
+      const d=await r.json();if(d.error)throw new Error(d.error.message);
+      return d.choices[0].message.content;
+    }
+    if(aiCfg.provider==='gemini'){
+      const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiCfg.model}:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:200}})});
+      const d=await r.json();if(d.error)throw new Error(d.error.message);
+      return d.candidates[0].content.parts[0].text;
+    }
+    if(aiCfg.provider==='anthropic'){
+      const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:aiCfg.model,max_tokens:200,messages:[{role:'user',content:prompt}]})});
+      const d=await r.json();if(d.error)throw new Error(d.error.message);
+      return d.content[0].text;
+    }
+    if(aiCfg.provider==='openai'){
+      const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:aiCfg.model,max_tokens:200,messages:[{role:'user',content:prompt}]})});
+      const d=await r.json();if(d.error)throw new Error(d.error.message);
+      return d.choices[0].message.content;
+    }
+  }catch(e){return ruleInsight(c)+' [AI error — rule-based fallback used]';}
+  return ruleInsight(c);
+}
+
+// ── REPORTS ────────────────────────────────────────────────────────
+function renderReports(){
+  const myList=currentRole==='admin'?customers:customers.filter(c=>c.callerId===currentCallerId);
+  const total=myList.length;
+  const statusCounts={};STATUSES.forEach(s=>statusCounts[s]=myList.filter(c=>c.status===s).length);
+  const pinStats={};myList.forEach(c=>{const a=c.pin!=='—'?(PIN_MAP[c.pin]||c.city):'Unknown';pinStats[a]=(pinStats[a]||0)+1;});
+  const high=myList.filter(c=>c.score>=80).length,mid=myList.filter(c=>c.score>=60&&c.score<80).length,low=myList.filter(c=>c.score<60).length;
+  const callerRows=currentRole==='admin'?callers.filter(c=>c.active).map(cal=>{
+    const list=customers.filter(c=>c.callerId===cal.id);
+    const called=list.filter(c=>c.status!=='Not Called').length;
+    const interested=list.filter(c=>c.status==='Interested').length;
+    const follow=list.filter(c=>c.status==='Follow Up'||c.status==='Callback Requested').length;
+    return{name:cal.name,total:list.length,called,interested,follow,pct:list.length?Math.round(called/list.length*100):0};
+  }):[];
+
+  document.getElementById('page-reports').innerHTML=`
+<div class="g4">
+  <div class="mc"><div class="mc-v">${total}</div><div class="mc-l">Total</div></div>
+  <div class="mc"><div class="mc-v">${myList.filter(c=>c.status!=='Not Called').length}</div><div class="mc-l">Called</div></div>
+  <div class="mc"><div class="mc-v">${statusCounts['Interested']||0}</div><div class="mc-l">Interested</div></div>
+  <div class="mc"><div class="mc-v">${total?Math.round(myList.filter(c=>c.status!=='Not Called').length/total*100):0}%</div><div class="mc-l">Completion</div></div>
+</div>
+
+<div class="g2">
+  <div class="card">
+    <div class="card-title">Status breakdown</div>
+    ${STATUSES.map(s=>`<div class="bar-row"><span style="min-width:135px;display:flex;align-items:center;gap:4px;color:var(--text2);font-size:12px"><span class="dot" style="background:${STATUS_COLOR[s]}"></span>${s}</span><div class="bar-bg"><div class="bar-f" style="width:${total?Math.round((statusCounts[s]||0)/total*100):0}%;background:${STATUS_COLOR[s]}"></div></div><span style="min-width:22px;text-align:right;font-weight:700;font-size:12px">${statusCounts[s]||0}</span></div>`).join('')}
+  </div>
+  <div class="card">
+    <div class="card-title">Loan eligibility report</div>
+    <div class="bar-row"><span style="min-width:90px;font-size:12px;color:var(--text2)">High (80+)</span><div class="bar-bg"><div class="bar-f" style="width:${total?Math.round(high/total*100):0}%;background:#1D9E75"></div></div><span style="font-weight:700;font-size:12px;min-width:22px;text-align:right">${high}</span></div>
+    <div class="bar-row"><span style="min-width:90px;font-size:12px;color:var(--text2)">Mid (60–79)</span><div class="bar-bg"><div class="bar-f" style="width:${total?Math.round(mid/total*100):0}%;background:#EF9F27"></div></div><span style="font-weight:700;font-size:12px;min-width:22px;text-align:right">${mid}</span></div>
+    <div class="bar-row"><span style="min-width:90px;font-size:12px;color:var(--text2)">Low (&lt;60)</span><div class="bar-bg"><div class="bar-f" style="width:${total?Math.round(low/total*100):0}%;background:#E24B4A"></div></div><span style="font-weight:700;font-size:12px;min-width:22px;text-align:right">${low}</span></div>
+    <div style="margin-top:14px;border-top:1px solid #f0f0f0;padding-top:12px">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:.06em">TOP CANDIDATES</div>
+      ${[...myList].sort((a,b)=>b.score-a.score).slice(0,3).map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f5f5f5;cursor:pointer;font-size:12px" onclick="openProfile(${c.id})"><span style="font-weight:700">${c.name}</span><div style="display:flex;align-items:center;gap:5px"><span style="font-weight:800;color:${scoreColor(c.score)}">${c.score}</span><span class="badge b-green" style="font-size:9px">${c.loan.split('/')[0].trim()}</span></div></div>`).join('')}
+    </div>
+  </div>
+</div>
+
+${currentRole==='admin'?`
+<div class="card">
+  <div class="card-title">Caller performance</div>
+  <div style="overflow-x:auto">
+  <table class="tbl">
+    <thead><tr><th>Caller</th><th>Assigned</th><th>Called</th><th>Interested</th><th>Follow-ups</th><th>Progress</th></tr></thead>
+    <tbody>${callerRows.map(r=>`<tr><td style="font-weight:700">${r.name}</td><td>${r.total}</td><td>${r.called}</td><td style="color:#27500A;font-weight:700">${r.interested}</td><td style="color:#185FA5">${r.follow}</td><td><div style="display:flex;align-items:center;gap:6px"><div class="bar-bg" style="width:80px"><div class="bar-f" style="width:${r.pct}%;background:#185FA5"></div></div><span style="font-size:11px;font-weight:600">${r.pct}%</span></div></td></tr>`).join('')}</tbody>
+  </table>
+  </div>
+</div>`:''}
+
+<div class="g2">
+  <div class="card">
+    <div class="card-title">Area / PIN code report</div>
+    ${Object.entries(pinStats).sort((a,b)=>b[1]-a[1]).map(([area,count])=>`<div class="bar-row"><span style="min-width:130px;font-size:12px;color:var(--text2)">${area}</span><div class="bar-bg"><div class="bar-f" style="width:${total?Math.round(count/total*100):0}%;background:#534AB7"></div></div><span style="font-weight:700;font-size:12px;min-width:22px;text-align:right">${count}</span></div>`).join('')}
+  </div>
+  <div class="card">
+    <div class="card-title">Callbacks &amp; follow-ups</div>
+    ${myList.filter(c=>['Callback Requested','Follow Up'].includes(c.status)).length
+      ?myList.filter(c=>['Callback Requested','Follow Up'].includes(c.status)).map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f5f5f5;font-size:12px;cursor:pointer" onclick="openProfile(${c.id})"><div><div style="font-weight:700">${c.name}</div><div style="font-size:11px;color:var(--text2)">${callerName(c.callerId)}</div></div><span class="status-pill" style="background:${STATUS_BG[c.status]};color:${STATUS_COLOR[c.status]}">${c.status}</span></div>`).join('')
+      :'<div style="color:var(--text2);font-size:12px">No pending callbacks</div>'}
+  </div>
+</div>
+
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+    <div class="card-title" style="margin:0">Daily summary — ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>
+    <button onclick="exportCSV()"><i class="ti ti-download"></i> Export CSV</button>
+  </div>
+  <div style="overflow-x:auto">
+  <table class="tbl">
+    <thead><tr><th>Customer</th><th>Company</th>${currentRole==='admin'?'<th>Caller</th>':''}<th>Score</th><th>Status</th><th>Comments</th><th>Last call</th></tr></thead>
+    <tbody>${myList.map(c=>`<tr onclick="openProfile(${c.id})"><td style="font-weight:700;font-size:12px">${c.name}</td><td style="font-size:11px;color:var(--text2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.company}</td>${currentRole==='admin'?`<td style="font-size:12px">${callerName(c.callerId)}</td>`:''}<td style="font-weight:800;color:${scoreColor(c.score)}">${c.score}</td><td><span class="status-pill" style="background:${STATUS_BG[c.status]};color:${STATUS_COLOR[c.status]}"><span class="dot" style="background:${STATUS_COLOR[c.status]}"></span>${c.status}</span></td><td style="font-size:11px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.comments||'—'}</td><td style="font-size:11px;color:var(--text2)">${c.callHistory.length?c.callHistory.slice(-1)[0].date:'—'}</td></tr>`).join('')}</tbody>
+  </table>
+  </div>
+</div>`;
+}
+
+// ── SETTINGS ───────────────────────────────────────────────────────
+function renderSettings(){
+  document.getElementById('page-settings').innerHTML=`
+<div class="g2">
+  <div class="card">
+    <div class="card-title">AI provider</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div>
+        <div style="font-weight:700">${PROVIDER_INFO[aiCfg.provider]?.label||aiCfg.provider}</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:3px">Model: ${aiCfg.model}</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:3px">Key: ${loadState('aicfg_enc',null)?'🔒 AES-256 Encrypted':(_decryptedApiKey?'🔓 Unlocked in memory':'⚠️ Not set')}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-direction:column;align-items:flex-end">
+        <button onclick="openAISettings()"><i class="ti ti-settings"></i> Change</button>
+        ${(window.__cloudReady&&window.CloudSync&&CloudSync.isAuthed)?`<button id="ai-sync-btn" onclick="syncAiKey()" style="font-size:11px;padding:4px 10px">${loadState('aicfg_enc',null)?'☁ Push key to cloud':'☁ Pull key from cloud'}</button>`:''}
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      ${['groq','gemini','anthropic','openai','rule'].map(p=>`<span class="badge ${p===aiCfg.provider?'b-blue':'b-gray'}">${p.charAt(0).toUpperCase()+p.slice(1)}</span>`).join('')}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Access control — callers</div>
+    <div id="caller-list-settings"></div>
+    <button onclick="openModal('caller-modal');renderCallerMgmt()" style="margin-top:10px"><i class="ti ti-users"></i> Manage callers</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Admin security — PIN</div>
+  <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Admin PIN protects the admin panel from caller access. Current PIN is <span style="font-weight:700;color:var(--text)">set</span>.</div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input type="password" id="new-pin-inp" placeholder="New PIN (digits)" style="width:140px;letter-spacing:3px;font-size:15px;text-align:center">
+    <input type="password" id="confirm-pin-inp" placeholder="Confirm PIN" style="width:140px;letter-spacing:3px;font-size:15px;text-align:center">
+    <button class="primary" onclick="changeAdminPin()"><i class="ti ti-lock"></i> Update PIN</button>
+  </div>
+  <div id="pin-change-msg" style="font-size:12px;margin-top:8px"></div>
+</div>
+
+<div class="card" style="border:2px solid var(--amber);background:#FFFBF0">
+  <div class="card-title" style="color:var(--amber);font-size:11px"><i class="ti ti-alert-triangle" style="font-size:13px"></i> Action required — replace your Apps Script</div>
+  <div style="font-size:13px;color:var(--text);margin-bottom:10px;line-height:1.55">If your sheet shows raw JSON in cells, or the test push errors with "Cannot read properties of null", your Apps Script needs the updated snippet below. The new version has your Sheet ID baked in so it works whether the script is bound to your Sheet or standalone (script.google.com).</div>
+  <ol style="font-size:12px;color:var(--text);padding-left:22px;line-height:1.8;margin-bottom:10px">
+    <li>Open <a href="${(loadState('gsheet_cfg',{}).url)||'https://docs.google.com/spreadsheets/d/1YHwkz-V9w5i5He8pCcNYZsCxI0EIHSib2HrbWethkBs/edit'}" target="_blank" style="color:var(--navy);font-weight:700">your Sheet</a> → <strong>Extensions → Apps Script</strong></li>
+    <li><strong>Select all</strong> (Ctrl+A) and delete the existing code</li>
+    <li>Copy the snippet from the <strong>code block below</strong> (it's open by default now)</li>
+    <li>Paste into the Apps Script editor, press <strong>Save</strong> (💾)</li>
+    <li><strong>Deploy → Manage deployments → ✏️ pencil → Version: New version → Deploy</strong> <em>(this updates the existing URL — no need to repaste the webhook)</em></li>
+    <li>Click <strong>Test push</strong> in the next card — you should see <em>"X rows × Y columns"</em> succeed and a new tab appear with proper rows and formatted headers</li>
+    <li>Delete the old garbled rows (the ones showing JSON dumps) from your Sheet manually</li>
+  </ol>
+</div>
+
+<div class="card">
+  <div class="card-title">Google Sheets archive — auto-push destination</div>
+  <div style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.5">Configure a Google Apps Script webhook so the CRM can <strong>automatically push old data into your Google Sheet</strong> when new files are uploaded. Without a webhook, the browser cannot write to Sheets directly — Google blocks cross-origin writes.</div>
+
+  <div style="margin-bottom:12px">
+    <label style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.05em;text-transform:uppercase;display:block;margin-bottom:4px">Destination Sheet URL</label>
+    <input type="text" id="gsheet-url-inp" placeholder="https://docs.google.com/spreadsheets/d/.../edit" value="${(loadState('gsheet_cfg',{}).url)||'https://docs.google.com/spreadsheets/d/1YHwkz-V9w5i5He8pCcNYZsCxI0EIHSib2HrbWethkBs/edit'}" style="font-size:12px;font-family:ui-monospace,monospace">
+  </div>
+
+  <div style="margin-bottom:12px">
+    <label style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.05em;text-transform:uppercase;display:block;margin-bottom:4px">Apps Script Webhook URL <span class="badge b-green" style="font-weight:500;margin-left:6px"><i class="ti ti-lock" style="font-size:9px"></i> Stored AES-256 encrypted</span></label>
+    <input type="password" id="gsheet-webhook-inp" placeholder="https://script.google.com/macros/s/AKfyc.../exec  (encrypted, requires admin PIN to save)" style="font-size:12px;font-family:ui-monospace,monospace">
+    <div style="font-size:11px;color:var(--text2);margin-top:4px">${loadState('gsheet_webhook_enc',null)?'🔒 Webhook saved (AES-256-GCM)':'⚠️ No webhook configured — old data will be archived locally only'}</div>
+  </div>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    <button class="primary" onclick="saveGSheetCfg()"><i class="ti ti-device-floppy"></i> Save destination</button>
+    <button onclick="verifyScriptVersion()" style="background:var(--purple-l);color:var(--purple);border-color:#bfb9e8"><i class="ti ti-script"></i> Verify script version</button>
+    <button onclick="testGSheetWebhook()"><i class="ti ti-flask"></i> Test push</button>
+    <button onclick="document.getElementById('gsheet-setup').style.display=document.getElementById('gsheet-setup').style.display==='none'?'block':'none'"><i class="ti ti-help-circle"></i> Setup guide</button>
+    ${loadState('gsheet_webhook_enc',null)?'<button class="danger" onclick="if(confirm(\'Remove webhook configuration?\')){localStorage.removeItem(\'liq_gsheet_webhook_enc\');saveState(\'gsheet_cfg\',{});renderSettings();showToast(\'Webhook cleared\');}"><i class="ti ti-trash"></i> Remove</button>':''}
+  </div>
+  <div id="gsheet-cfg-msg" style="font-size:12px"></div>
+
+  <div id="gsheet-setup" style="display:block;margin-top:14px;padding:14px;background:#fafbfd;border:1px solid var(--border);border-radius:var(--rs)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:11px;font-weight:700;color:var(--navy);letter-spacing:.05em;text-transform:uppercase">One-time Apps Script setup (≈2 min) — paste THIS snippet, not anything else</div>
+      <button onclick="document.getElementById('gsheet-setup').style.display='none'" style="font-size:10px;padding:3px 8px">Hide</button>
+    </div>
+    <ol style="font-size:12px;color:var(--text);padding-left:20px;line-height:1.7">
+      <li>Open your Google Sheet, then <strong>Extensions → Apps Script</strong></li>
+      <li>Delete the placeholder code, paste the script below, then click <i class="ti ti-device-floppy"></i> <strong>Save</strong></li>
+      <li>Click <strong>Deploy → New deployment</strong> → gear icon → <strong>Web app</strong></li>
+      <li>Set <em>Execute as</em>: <strong>Me</strong>, <em>Who has access</em>: <strong>Anyone</strong> → <strong>Deploy</strong></li>
+      <li>Authorize (click <em>Advanced → Go to project</em> if you see an unverified warning — it's your own script)</li>
+      <li>Copy the <strong>Web app URL</strong> ending in <code>/exec</code> and paste it into "Apps Script Webhook URL" above</li>
+    </ol>
+    <div style="position:relative;margin-top:10px">
+      <button onclick="copyText(document.getElementById('apps-script-code').textContent)" style="position:absolute;top:6px;right:6px;font-size:10px;padding:4px 8px;z-index:1"><i class="ti ti-copy"></i> Copy</button>
+      <pre id="apps-script-code" style="background:#1B2A6B;color:#E6F4EC;padding:14px 14px 14px 14px;border-radius:6px;font-size:11px;font-family:ui-monospace,monospace;overflow-x:auto;line-height:1.5;max-height:340px;overflow-y:auto;margin:0">/**
+ * SNS LoanIQ CRM → Google Sheets archive webhook
+ * Receives JSON {sheet, rows:[[...]], replace} and writes every row/column.
+ * Works whether this script is bound to a Sheet (Extensions → Apps Script)
+ * OR standalone (script.google.com), thanks to the SHEET_ID fallback below.
+ *
+ * Deploy as Web App: Execute as Me, Who has access: Anyone.
+ */
+const SHEET_ID = '1YHwkz-V9w5i5He8pCcNYZsCxI0EIHSib2HrbWethkBs'; // your Sheet ID (pre-filled)
+
+function _ss() {
+  return SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SHEET_ID);
+}
+
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var ss = _ss();
+    var sheetName = data.sheet || ('Archive ' + new Date().toISOString().slice(0,16).replace('T',' '));
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) sheet = ss.insertSheet(sheetName);
+    if (data.replace) sheet.clear();
+
+    var rows = data.rows || [];
+    if (!rows.length) {
+      return _json({ok:false, error:'No rows received'});
+    }
+
+    // Pad short rows so setValues gets a perfect rectangle
+    var width = rows.reduce(function(m,r){ return Math.max(m, r.length); }, 0);
+    rows = rows.map(function(r){
+      var copy = r.slice();
+      while (copy.length &lt; width) copy.push('');
+      return copy;
+    });
+
+    var startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, rows.length, width).setValues(rows);
+
+    // Format the header row if this is the first write
+    if (startRow === 1) {
+      var header = sheet.getRange(1, 1, 1, width);
+      header.setFontWeight('bold')
+            .setBackground('#1B2A6B')
+            .setFontColor('#FFFFFF');
+      sheet.setFrozenRows(1);
+      sheet.autoResizeColumns(1, width);
+    }
+
+    return _json({
+      ok: true,
+      sheet: sheetName,
+      added: rows.length,
+      columns: width,
+      url: ss.getUrl() + '#gid=' + sheet.getSheetId()
+    });
+  } catch (err) {
+    return _json({ok:false, error: err.toString()});
+  }
+}
+
+function doGet() {
+  return _json({ok:true, msg:'SNS LoanIQ archive webhook is live'});
+}
+
+function _json(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}</pre>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Data management</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button onclick="exportCSV()"><i class="ti ti-download"></i> Export all data CSV</button>
+    <button onclick="downloadExcelTemplate()"><i class="ti ti-table-export"></i> Download Excel template</button>
+    <button class="danger" onclick="if(confirm('Reset all call statuses to Not Called?')){customers.forEach(c=>{c.status='Not Called';c.comments='';c.callHistory=[];});save();showToast('All statuses reset');}"><i class="ti ti-refresh"></i> Reset all statuses</button>
+    <button class="danger" onclick="if(confirm('Clear all AI insights?')){customers.forEach(c=>{c.enriched=false;c.aiInsight='';});save();showToast('Insights cleared');}"><i class="ti ti-trash"></i> Clear AI insights</button>
+  </div>
+</div>`;
+  renderCallerListSettings();
+}
+
+function renderCallerListSettings(){
+  const el=document.getElementById('caller-list-settings');
+  if(!el) return;
+  el.innerHTML=callers.map(c=>{
+    const [bg,fg]=AVATAR_COLORS[c.color%AVATAR_COLORS.length];
+    const mine=customers.filter(x=>x.callerId===c.id).length;
+    return`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0f0f0">
+      <div class="avatar" style="width:32px;height:32px;font-size:11px;background:${bg};color:${fg}">${initials(c.name)}</div>
+      <div style="flex:1"><div style="font-weight:700;font-size:13px">${c.name}</div><div style="font-size:11px;color:var(--text2)">${mine} contacts assigned</div></div>
+      <span class="badge ${c.active?'b-green':'b-gray'}">${c.active?'Active':'Inactive'}</span>
+    </div>`;}).join('');
+}
+
+// ── CALLER MANAGEMENT ──────────────────────────────────────────────
+function renderCallerMgmt(){
+  document.getElementById('caller-mgmt-list').innerHTML=callers.map((c,i)=>{
+    const [bg,fg]=AVATAR_COLORS[c.color%AVATAR_COLORS.length];
+    const mine=customers.filter(x=>x.callerId===c.id).length;
+    return`<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0">
+      <div class="avatar" style="width:36px;height:36px;font-size:12px;background:${bg};color:${fg}">${initials(c.name)}</div>
+      <div style="flex:1">
+        <input type="text" id="cname-${c.id}" value="${c.name}" style="font-size:13px;font-weight:600;padding:5px 8px;width:100%" onchange="renameCaller('${c.id}',this.value)">
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">${mine} contacts assigned</div>
+      </div>
+      <button onclick="toggleCallerActive('${c.id}')" style="font-size:11px;padding:5px 10px;background:${c.active?'var(--amber-l)':'var(--green-l)'};color:${c.active?'var(--amber)':'var(--green)'};border-color:${c.active?'#f0c070':'#b0d890'}">${c.active?'Deactivate':'Activate'}</button>
+      <button onclick="deleteCaller('${c.id}')" style="font-size:11px;padding:5px 10px;background:var(--red-l);color:var(--red);border-color:#f0c0c0"><i class="ti ti-trash"></i></button>
+    </div>`;}).join('');
+}
+
+function renameCaller(id,newName){
+  const c=callers.find(x=>x.id===id);
+  if(!c||!newName.trim()) return;
+  const old=c.name;c.name=newName.trim();
+  customers.forEach(cu=>{if(cu.callerId===id)cu.callHistory.forEach(h=>{if(h.caller===old)h.caller=newName.trim();});});
+  save();showToast('Renamed to '+newName.trim());
+}
+
+function toggleCallerActive(id){
+  const c=callers.find(x=>x.id===id);
+  if(!c) return;
+  c.active=!c.active;save();
+  renderCallerMgmt();
+  renderCallerListSettings();
+  showToast(c.name+(c.active?' activated':' deactivated'));
+}
+
+function deleteCaller(id){
+  if(!confirm('Delete this caller? Their contacts will become unassigned.')) return;
+  customers.filter(c=>c.callerId===id).forEach(c=>c.callerId='');
+  callers=callers.filter(c=>c.id!==id);
+  save();renderCallerMgmt();renderCallerListSettings();
+  showToast('Caller deleted');
+}
+
+function addCaller(){
+  const name=document.getElementById('new-caller-name').value.trim();
+  if(!name){showToast('Enter a name','#A32D2D');return;}
+  callers.push({id:'c'+Date.now(),name,active:true,color:callers.length%AVATAR_COLORS.length});
+  save();renderCallerMgmt();document.getElementById('new-caller-name').value='';
+  showToast('Caller '+name+' added');
+  buildLoginList();
+}
+
+// ── AI KEY CLOUD SYNC ──────────────────────────────────────────────
+// Push local encrypted ciphertext to cloud, or pull from cloud.
+// Raw key never leaves the device — only the AES-256-GCM ciphertext syncs.
+async function syncAiKey(){
+  if(!window.__cloudReady || !window.CloudSync || !CloudSync.isAuthed){
+    showToast('Not connected to cloud — sign in with Google first','#A32D2D'); return;
+  }
+  const btn=document.getElementById('ai-sync-btn');
+  if(btn){btn.disabled=true;btn.textContent='Syncing…';}
+  try{
+    const localEnc=loadState('aicfg_enc',null);
+    if(localEnc){
+      // Push local encrypted key to cloud
+      await CloudSync.setSettings({aicfg_enc:localEnc, aicfg:{provider:aiCfg.provider,model:aiCfg.model,key:''}});
+      showToast('✓ Key synced to cloud');
+    } else {
+      // Pull from cloud
+      const settings=await CloudSync.fetchSettings();
+      if(settings.aicfg_enc){
+        saveState('aicfg_enc',settings.aicfg_enc);
+        if(settings.aicfg){saveState('aicfg',settings.aicfg);aiCfg=Object.assign(aiCfg,settings.aicfg);}
+        showToast('✓ Encrypted key restored from cloud');
+        renderSettings();
+      } else {
+        showToast('No key found in cloud — enter your API key in Settings','#B87800');
+      }
+    }
+  } catch(e){showToast('Sync failed: '+e.message,'#A32D2D');}
+  finally{if(btn){btn.disabled=false;btn.textContent='☁ Sync key';}}
+}
+
+// ── ENCRYPTED KEY STORE (AES-256-GCM via Web Crypto) ─────────────
+// Raw API key NEVER stored in localStorage — only AES-GCM ciphertext.
+// Decryption requires the Master Password entered at runtime.
+// Losing the password = must re-enter the API key.
+
+let _decryptedApiKey = null; // lives ONLY in memory, cleared on logout/unload
+window.addEventListener('beforeunload', () => { _decryptedApiKey = null; });
+
+async function _deriveKey(password, salt) {
+  const enc = new TextEncoder();
+  const km = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name:'PBKDF2', salt, iterations:200000, hash:'SHA-256' },
+    km, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']
+  );
+}
+
+async function _encryptKey(rawKey, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv   = crypto.getRandomValues(new Uint8Array(12));
+  const ck   = await _deriveKey(password, salt);
+  const ct   = await crypto.subtle.encrypt({name:'AES-GCM',iv}, ck, new TextEncoder().encode(rawKey));
+  const buf  = new Uint8Array(28 + ct.byteLength);
+  buf.set(salt,0); buf.set(iv,16); buf.set(new Uint8Array(ct),28);
+  return btoa(String.fromCharCode(...buf));
+}
+
+async function _decryptKey(b64, password) {
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const ck = await _deriveKey(password, bytes.slice(0,16));
+  const pt = await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes.slice(16,28)}, ck, bytes.slice(28));
+  return new TextDecoder().decode(pt);
+}
+
+async function getDecryptedKey(masterPw) {
+  if (_decryptedApiKey) return _decryptedApiKey;
+  const enc = loadState('aicfg_enc', null);
+  if (!enc || !masterPw) return null;
+  try { _decryptedApiKey = await _decryptKey(enc, masterPw); return _decryptedApiKey; }
+  catch(e) { return null; }
+}
+
+function lockApiKey() { _decryptedApiKey = null; }
+
+// ── AI SETTINGS MODAL ─────────────────────────────────────────────
+function openAISettings(){
+  document.getElementById('ai-provider-sel').value = aiCfg.provider;
+  document.getElementById('api-key-inp').value = '';
+  const hasEnc = !!loadState('aicfg_enc', null);
+  document.getElementById('api-key-inp').placeholder = hasEnc
+    ? '●●●●●●●●  (key is encrypted — enter new key to replace)'
+    : 'Paste your API key here...';
+  document.getElementById('key-master-pw').value = '';
+  document.getElementById('enc-status').textContent = hasEnc ? '🔒 Key is encrypted in storage' : '⚠️ No key saved yet';
+  document.getElementById('enc-status').style.color = hasEnc ? 'var(--green)' : 'var(--amber)';
+  updateProviderUI();
+  openModal('ai-modal');
+}
+
+function updateProviderUI(){
+  const p = document.getElementById('ai-provider-sel').value;
+  const info = PROVIDER_INFO[p];
+  document.getElementById('provider-info').textContent = info.label;
+  document.getElementById('key-help').textContent = info.help;
+  document.getElementById('api-key-section').style.display = p==='rule' ? 'none' : 'block';
+  const msel = document.getElementById('model-sel');
+  msel.innerHTML = info.models.map(m=>`<option value="${m}"${m===aiCfg.model?' selected':''}>${m}</option>`).join('');
+}
+
+async function saveAISettings(){
+  const provider = document.getElementById('ai-provider-sel').value;
+  const model    = document.getElementById('model-sel').value;
+  const rawKey   = document.getElementById('api-key-inp').value.trim();
+  const masterPw = document.getElementById('key-master-pw').value.trim();
+  const res      = document.getElementById('ai-test-result');
+
+  aiCfg.provider = provider;
+  aiCfg.model    = model;
+  aiCfg.key      = ''; // NEVER store plain key
+  saveState('aicfg', {provider, model, key:''});
+  // Wipe any legacy plain key
+  const legacy = loadState('aicfg', {});
+  if (legacy.key) { saveState('aicfg', {provider, model, key:''}); }
+
+  if (rawKey && provider !== 'rule') {
+    if (!masterPw) {
+      res.innerHTML = '<span style="color:var(--red)">✗ Enter a Master Password to encrypt the key.</span>';
+      return;
+    }
+    try {
+      saveState('aicfg_enc', await _encryptKey(rawKey, masterPw));
+      _decryptedApiKey = rawKey;
+      document.getElementById('enc-status').textContent = '🔒 Key encrypted & saved';
+      document.getElementById('enc-status').style.color = 'var(--green)';
+      showToast('✓ API key encrypted with AES-256');
+    } catch(e) { showToast('Encryption failed: '+e.message,'#A32D2D'); return; }
+  }
+  // Sync provider/model and encrypted key ciphertext to cloud (raw key never leaves device)
+  if(window.__cloudReady && window.CloudSync && CloudSync.isAuthed){
+    const syncMap = { aicfg: {provider, model, key:''} };
+    const enc = loadState('aicfg_enc', null);
+    if(enc) syncMap.aicfg_enc = enc;
+    CloudSync.setSettings(syncMap).catch(e=>console.warn('[AI sync]',e.message));
+  }
+  closeModal('ai-modal');
+  showToast('AI settings saved — '+provider.toUpperCase());
+  if(prevPage==='settings') renderSettings();
+}
+
+async function testAI(){
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Testing...';
+  const res = document.getElementById('ai-test-result');
+  const masterPw = document.getElementById('key-master-pw').value.trim();
+  const rawKey   = document.getElementById('api-key-inp').value.trim();
+  // Use freshly-typed key first, then try to decrypt stored
+  const testKey = rawKey || (await getDecryptedKey(masterPw)) || '';
+  const tmpCfg = {provider:document.getElementById('ai-provider-sel').value, model:document.getElementById('model-sel').value, key:testKey};
+  const saved = aiCfg; aiCfg = tmpCfg;
+  try {
+    const r = await getAIInsight(customers[0]);
+    res.innerHTML = `<span style="color:var(--green)">✓ Connected! Sample: "${r.slice(0,80)}..."</span>`;
+  } catch(e) { res.innerHTML = `<span style="color:var(--red)">✗ Error: ${e.message}</span>`; }
+  aiCfg = saved; btn.disabled = false; btn.textContent = 'Test connection';
+}
+
+// Unlock key for session without changing settings
+async function unlockOnly(){
+  const masterPw = document.getElementById('key-master-pw').value.trim();
+  const res = document.getElementById('ai-test-result');
+  if(!masterPw){res.innerHTML='<span style="color:var(--red)">✗ Enter your Master Password first.</span>';return;}
+  const k = await getDecryptedKey(masterPw);
+  if(k){
+    res.innerHTML='<span style="color:var(--green)">✓ Key unlocked for this session. AI features are now active.</span>';
+    document.getElementById('enc-status').textContent='🔓 Key unlocked in memory';
+    document.getElementById('enc-status').style.color='var(--gold-l)';
+  } else {
+    res.innerHTML='<span style="color:var(--red)">✗ Wrong password or no key saved.</span>';
+  }
+}
+
+// ── PROFILE ────────────────────────────────────────────────────────
+function openProfile(id){
+  const c=customers.find(x=>x.id===id);
+  if(!c) return;
+  const [bg,fg]=ac(c.name);
+  const area=c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city;
+  ['admin','caller','reports','settings'].forEach(x=>{document.getElementById('page-'+x).className='page';const b=document.getElementById('nb-'+x);if(b)b.className='nav-btn';});
+  document.getElementById('page-profile').className='page active';
+  document.getElementById('page-profile').innerHTML=`
+<button onclick="showPage('${prevPage}')" style="margin-bottom:14px"><i class="ti ti-arrow-left"></i> Back</button>
+
+<div style="background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+  <div class="avatar" style="width:54px;height:54px;font-size:17px;background:${bg};color:${fg}">${initials(c.name)}</div>
+  <div style="flex:1;min-width:180px">
+    <div style="font-size:20px;font-weight:800">${c.name}</div>
+    <div style="font-size:13px;color:var(--text2)">${c.company} · ${c.designation}</div>
+    <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+      <span class="badge ${c.eligibility==='High'?'b-green':c.eligibility==='Moderate'?'b-amber':'b-red'}">${c.eligibility} eligibility</span>
+      <span class="badge b-blue">${c.loan}</span>
+      <span class="status-pill" style="background:${STATUS_BG[c.status]};color:${STATUS_COLOR[c.status]}"><span class="dot" style="background:${STATUS_COLOR[c.status]}"></span>${c.status}</span>
+    </div>
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:36px;font-weight:900;color:${scoreColor(c.score)};line-height:1">${c.score}</div>
+    <div style="font-size:11px;color:var(--text2)">loan score</div>
+  </div>
+</div>
+
+<div class="g2">
+  <div>
+    <div class="card">
+      <div class="card-title">Contact details</div>
+      ${[['ti-phone','Phone',`<a href="tel:${c.phone}" style="color:var(--blue);text-decoration:none;font-weight:700" onclick="trackCall(${c.id},event)">${c.phone}</a>`],['ti-mail','Email',c.email],['ti-map-pin','Area',area+(c.pin!=='—'?' ('+c.pin+')':'')],['ti-building','Sector',SECTOR_MAP[c.company]||'—'],['ti-user','Assigned to',callerName(c.callerId)]].map(([ic,lbl,val])=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f5f5f5;font-size:13px"><span style="color:var(--text2);display:flex;align-items:center;gap:5px"><i class="ti ${ic}"></i>${lbl}</span><span style="font-weight:600;text-align:right">${val}</span></div>`).join('')}
+      ${currentRole==='admin'?`<div style="padding-top:10px;margin-top:4px"><label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:5px">REASSIGN TO</label><div style="display:flex;gap:6px"><select id="reassign-sel" style="font-size:12px">${callers.filter(x=>x.active).map(cal=>`<option value="${cal.id}"${cal.id===c.callerId?' selected':''}>${cal.name}</option>`).join('')}</select><button onclick="reassign(${c.id})" style="white-space:nowrap;font-size:11px"><i class="ti ti-arrows-exchange"></i></button></div></div>`:''}
+    </div>
+    ${currentRole!=='admin'||true?`
+    <div class="card">
+      <div class="card-title">Update call</div>
+      <div style="margin-bottom:8px"><select id="pst-${c.id}" style="font-size:13px">${STATUSES.map(s=>`<option${s===c.status?' selected':''}>${s}</option>`).join('')}</select></div>
+      <div style="margin-bottom:8px"><textarea id="pcm-${c.id}" rows="3" placeholder="Add call notes...">${c.comments}</textarea></div>
+      <button class="primary" onclick="saveFromProfile(${c.id})"><i class="ti ti-device-floppy"></i> Save update</button>
+    </div>`:''}
+  </div>
+  <div>
+    <div class="card">
+      <div class="card-title">AI insight <span class="badge b-gray" style="font-size:9px">${aiCfg.provider.toUpperCase()}</span></div>
+      <div class="ai-box" id="profile-insight">${c.aiInsight||'Not yet enriched.'}</div>
+      <button onclick="enrichProfileNow(${c.id})" style="margin-top:8px;font-size:11px"><i class="ti ti-refresh"></i> Regenerate insight</button>
+    </div>
+  </div>
+</div>
+
+${c.callHistory.length?`
+<div class="card">
+  <div class="card-title">Full call history (${c.callHistory.length} entries)</div>
+  ${c.callHistory.map(h=>`<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #f5f5f5;font-size:12px;flex-wrap:wrap"><span style="color:var(--text2);min-width:80px">${h.date}</span><span style="color:var(--text2);min-width:70px">${h.caller}</span><span style="font-weight:700;color:${STATUS_COLOR[h.status]};min-width:120px">${h.status}</span><span>${h.comment}</span></div>`).join('')}
+</div>`:''}`;
+}
+
+function reassign(id){
+  const c=customers.find(x=>x.id===id);
+  const sel=document.getElementById('reassign-sel');
+  if(!sel) return;
+  c.callerId=sel.value;save();
+  showToast('Reassigned to '+callerName(c.callerId));
+  openProfile(id);
+}
+
+function saveFromProfile(id){
+  const c=customers.find(x=>x.id===id);
+  const ns=document.getElementById('pst-'+id).value;
+  const comment=document.getElementById('pcm-'+id).value.trim();
+  c.status=ns;c.comments=comment;
+  c.callHistory.push({date:today(),caller:currentUser,status:ns,comment:comment||'Status: '+ns});
+  save();showToast('✓ Saved');openProfile(id);
+}
+
+async function enrichProfileNow(id){
+  const c=customers.find(x=>x.id===id);
+  const el=document.getElementById('profile-insight');
+  if(el) el.textContent='Generating...';
+  try{c.aiInsight=await getAIInsight(c);c.enriched=true;save();if(el)el.textContent=c.aiInsight;}
+  catch(e){if(el)el.textContent='Error — check AI settings.';showToast('AI error','#A32D2D');}
+}
+
+// ── ADMIN PIN CHANGE ───────────────────────────────────────────────
+let currentAdminPin=ADMIN_PIN; // runtime mutable PIN (session only; for persistence save to localStorage)
+(function(){const stored=localStorage.getItem('liq_adminpin');if(stored)currentAdminPin=stored;})();
+
+function changeAdminPin(){
+  const np=document.getElementById('new-pin-inp').value.trim();
+  const cp=document.getElementById('confirm-pin-inp').value.trim();
+  const msg=document.getElementById('pin-change-msg');
+  if(!np){msg.innerHTML='<span style="color:var(--red)">Enter a new PIN.</span>';return;}
+  if(np!==cp){msg.innerHTML='<span style="color:var(--red)">PINs do not match.</span>';return;}
+  if(!/^\d{4,8}$/.test(np)){msg.innerHTML='<span style="color:var(--red)">PIN must be 4–8 digits.</span>';return;}
+  currentAdminPin=np;
+  localStorage.setItem('liq_adminpin',np);
+  document.getElementById('new-pin-inp').value='';
+  document.getElementById('confirm-pin-inp').value='';
+  msg.innerHTML='<span style="color:#27500A">✓ Admin PIN updated.</span>';
+  showToast('Admin PIN updated');
+}
+
+// ── EXCEL TEMPLATE ─────────────────────────────────────────────────
+function downloadExcelTemplate(){
+  const headers=['name','company','designation','email','phone','pin','city'];
+  const sampleRow=['Ravi Kumar','ABC Traders','Proprietor','ravi@example.com','9876543210','620017','Tiruchirappalli'];
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet([headers,sampleRow]);
+  // Column widths
+  ws['!cols']=[{wch:20},{wch:28},{wch:18},{wch:28},{wch:14},{wch:8},{wch:16}];
+  XLSX.utils.book_append_sheet(wb,ws,'Contacts');
+  XLSX.writeFile(wb,'loaniq_upload_template.xlsx');
+  showToast('Excel template downloaded');
+}
+
+// ── EXPORT ─────────────────────────────────────────────────────────
+function exportCSV(){
+  const myList=currentRole==='admin'?customers:customers.filter(c=>c.callerId===currentCallerId);
+  const hdr=['Name','Company','Phone','Email','PIN','Area','Score','Eligibility','Loan Type','Caller','Status','Comments','Last Call'];
+  const rows=myList.map(c=>[c.name,c.company,c.phone,c.email,c.pin,c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city,c.score,c.eligibility,c.loan,callerName(c.callerId),c.status,c.comments,c.callHistory.length?c.callHistory.slice(-1)[0].date:'']);
+  const csv=[hdr,...rows].map(r=>r.map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
+  a.download='loaniq_'+today()+'.csv';a.click();
+  showToast('CSV exported');
+}
+
+// ── CLOUD SYNC INTEGRATION ─────────────────────────────────────────
+window.__cloudReady = false;
+window.__cloudSnap = { customers:{}, callers:{} };
+
+function _snapshotState(){
+  window.__cloudSnap.customers={};
+  window.__cloudSnap.callers={};
+  customers.forEach(c=>window.__cloudSnap.customers[c.id]=JSON.stringify(c));
+  callers.forEach(c=>window.__cloudSnap.callers[c.id]=JSON.stringify(c));
+}
+
+function _diffAndPush(){
+  if(!window.CloudSync || !window.CloudSync.isAuthed || !window.__cloudReady) return;
+  const dirtyC=[], dirtyK=[];
+  customers.forEach(c=>{
+    const j=JSON.stringify(c);
+    if(window.__cloudSnap.customers[c.id]!==j){window.__cloudSnap.customers[c.id]=j;dirtyC.push(c);}
+  });
+  callers.forEach(c=>{
+    const j=JSON.stringify(c);
+    if(window.__cloudSnap.callers[c.id]!==j){window.__cloudSnap.callers[c.id]=j;dirtyK.push(c);}
+  });
+  if(dirtyC.length){
+    setSyncStatus('saving');
+    const p = dirtyC.length===1 ? CloudSync.upsertCustomer(dirtyC[0]) : CloudSync.upsertCustomers(dirtyC);
+    p.then(()=>setSyncStatus('saved')).catch(e=>setSyncStatus('error',e.message));
+  }
+  if(dirtyK.length){
+    setSyncStatus('saving');
+    CloudSync.upsertCallers(dirtyK).then(()=>setSyncStatus('saved')).catch(e=>setSyncStatus('error',e.message));
+  }
+}
+
+// Wrap save() so every change propagates to the cloud
+const _origSave=save;
+save=function(){_origSave.apply(this,arguments);if(window.__cloudReady)_diffAndPush();};
+
+function setSyncStatus(s,msg){
+  const el=document.getElementById('sync-status'); if(!el) return;
+  if(s==='saving')   el.innerHTML='<i class="ti ti-cloud-upload" style="color:#FFD45A"></i> Saving…';
+  else if(s==='saved'){
+    el.innerHTML='<i class="ti ti-cloud-check" style="color:#4ABA72"></i> Synced';
+    el.title='All changes saved to Google Sheet';
+    setTimeout(()=>{ if(el.innerHTML.indexOf('Synced')>=0) setSyncStatus('idle'); },1800);
+  }
+  else if(s==='error'){
+    el.innerHTML='<i class="ti ti-cloud-off" style="color:#ff8585"></i> Offline';
+    el.title=msg||'Cloud sync failed — changes saved locally';
+  }
+  else if(s==='syncing') el.innerHTML='<i class="ti ti-cloud-download" style="color:#82B7FF"></i> Syncing…';
+  else if(s==='local')   el.innerHTML='<i class="ti ti-device-floppy" style="color:rgba(255,255,255,0.55)"></i> Local only';
+  else                   el.innerHTML='<i class="ti ti-cloud" style="color:rgba(255,255,255,0.55)"></i> Cloud';
+}
+
+// Other users' edits arrive here
+window.addEventListener('cloud-remote-change',e=>{
+  const d=e.detail||{}; let touched=false;
+  // Deletes first — so an ID that appears in both lists (replaceCustomers pattern) ends up present
+  (d.deletedCustomers||[]).forEach(id=>{
+    const i=customers.findIndex(c=>String(c.id)===String(id));
+    if(i>=0){customers.splice(i,1);touched=true;}
+    delete window.__cloudSnap.customers[id];
+  });
+  (d.customers||[]).forEach(rc=>{
+    const i=customers.findIndex(c=>String(c.id)===String(rc.id));
+    if(i>=0) customers[i]=rc; else customers.push(rc);
+    window.__cloudSnap.customers[rc.id]=JSON.stringify(rc); touched=true;
+  });
+  (d.callers||[]).forEach(rk=>{
+    const i=callers.findIndex(c=>c.id===rk.id);
+    if(i>=0) callers[i]=rk; else callers.push(rk);
+    window.__cloudSnap.callers[rk.id]=JSON.stringify(rk); touched=true;
+  });
+  (d.deletedCallers||[]).forEach(id=>{
+    const i=callers.findIndex(c=>c.id===id);
+    if(i>=0) callers.splice(i,1);
+    delete window.__cloudSnap.callers[id]; touched=true;
+  });
+  // Apply AI config settings pushed from another device
+  if(d.settings){
+    if(d.settings.aicfg_enc && !loadState('aicfg_enc',null)){
+      saveState('aicfg_enc',d.settings.aicfg_enc); touched=true;
+      if(d.settings.aicfg){saveState('aicfg',d.settings.aicfg);aiCfg=Object.assign(aiCfg,d.settings.aicfg);}
+    }
+  }
+  if(touched){
+    saveState('customers',customers); saveState('callers',callers);
+    showToast('☁ Updated from cloud','#185FA5');
+    const active=document.querySelector('.page.active');
+    if(active){
+      const id=active.id;
+      if(id==='page-admin')   renderAdmin();
+      else if(id==='page-caller')  renderCaller();
+      else if(id==='page-reports') renderReports();
+      else if(id==='page-settings')renderSettings();
+    }
+    if(document.getElementById('login-screen').style.display!=='none') buildLoginList();
+  }
+});
+
+window.addEventListener('cloud-sync-error',e=>{ setSyncStatus('error', e.detail&&e.detail.error); });
+
+// Bootstrap on Google sign-in
+window.addEventListener('cloud-signin', async ()=>{
+  document.getElementById('boot-status').style.display='block';
+  document.getElementById('boot-status').innerHTML='<i class="ti ti-loader"></i> Loading data from Google Sheet…';
+  setSyncStatus('syncing');
+  try{
+    const cloud = await CloudSync.load();
+    if((cloud.customers&&cloud.customers.length)||(cloud.callers&&cloud.callers.length)){
+      if(cloud.customers&&cloud.customers.length){
+        customers.length=0; cloud.customers.forEach(c=>customers.push(c));
+      }
+      if(cloud.callers&&cloud.callers.length){
+        callers.length=0; cloud.callers.forEach(c=>callers.push(c));
+      }
+      saveState('customers',customers); saveState('callers',callers);
+    } else {
+      // Cloud empty: push local seed so other users see something
+      if(customers.length) await CloudSync.upsertCustomers(customers);
+      if(callers.length)   await CloudSync.upsertCallers(callers);
+    }
+    // Restore AI config from cloud if not set locally
+    if(cloud.settings){
+      if(cloud.settings.aicfg && !loadState('aicfg',null)){
+        saveState('aicfg', cloud.settings.aicfg);
+        aiCfg = Object.assign(aiCfg, cloud.settings.aicfg);
+      }
+      if(cloud.settings.aicfg_enc && !loadState('aicfg_enc',null)){
+        saveState('aicfg_enc', cloud.settings.aicfg_enc);
+      }
+    }
+    _snapshotState();
+    window.__cloudReady=true;
+    CloudSync.startPolling();
+    setSyncStatus('saved');
+    document.getElementById('gsignin-screen').style.display='none';
+    document.getElementById('boot-status').style.display='none';
+    document.getElementById('login-screen').style.display='flex';
+    buildLoginList();
+  } catch(err){
+    setSyncStatus('error', err.message);
+    document.getElementById('boot-status').innerHTML=
+      '<div style="color:#A32D2D"><i class="ti ti-alert-circle"></i> Cloud load failed:<br><code style="font-size:11px">'+
+      (err.message||'').replace(/</g,'&lt;')+'</code></div>'+
+      '<div style="margin-top:10px;display:flex;gap:6px;justify-content:center">'+
+      '<button class="primary" onclick="location.reload()">Retry</button>'+
+      '<button onclick="_startLocalOnly()">Continue offline</button></div>';
+  }
+});
+
+function _startLocalOnly(){
+  window.__cloudReady=false;
+  document.getElementById('gsignin-screen').style.display='none';
+  document.getElementById('boot-status').style.display='none';
+  document.getElementById('login-screen').style.display='flex';
+  setSyncStatus('local');
+  buildLoginList();
+}
+
+const _origLogout=logout;
+logout=function(){ if(window.CloudSync) CloudSync.stopPolling(); _origLogout.apply(this,arguments); };
+
+// ── BOOT ──────────────────────────────────────────────────────────
+function boot(){
+  const cfg = window.CLOUD_CONFIG || {};
+  if(!cfg.webhook || !cfg.clientId){
+    document.getElementById('gsignin-screen').style.display='none';
+    document.getElementById('login-screen').style.display='flex';
+    document.getElementById('cfg-warning').style.display='block';
+    setSyncStatus('local');
+    buildLoginList();
+    return;
+  }
+  const restored = CloudSync.init();
+  if(restored && CloudSync.isAuthed){
+    document.getElementById('gsignin-screen').style.display='flex';
+    window.dispatchEvent(new CustomEvent('cloud-signin',{detail:{user:CloudSync.user}}));
+  } else {
+    document.getElementById('gsignin-screen').style.display='flex';
+    CloudSync.renderSignInButton('gsi-btn-container');
+  }
+}
+boot();
+</script>
+</body>
+</html>
