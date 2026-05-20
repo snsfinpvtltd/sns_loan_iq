@@ -590,6 +590,7 @@ function renderAdmin(){
       <select onchange="adminFilter()" id="f-caller" style="width:auto;font-size:12px"><option>All callers</option>${callers.map(c=>`<option>${c.name}</option>`).join('')}</select>
       <select onchange="adminFilter()" id="f-status" style="width:auto;font-size:12px"><option>All statuses</option>${STATUSES.map(s=>`<option>${s}</option>`).join('')}</select>
       <select onchange="adminFilter()" id="f-elig" style="width:auto;font-size:12px"><option>All eligibility</option><option>High</option><option>Moderate</option><option>Low</option></select>
+      <select onchange="adminFilter()" id="f-city" style="width:auto;font-size:12px"><option>All cities</option>${[...new Set(customers.map(c=>c.city||'').filter(Boolean))].sort().map(c=>`<option>${c}</option>`).join('')}</select>
       <input type="number" id="f-score-min" oninput="adminFilter()" placeholder="Min score" style="width:72px;font-size:12px;padding:6px 8px" min="0" max="100">
       <input type="number" id="f-score-max" oninput="adminFilter()" placeholder="Max score" style="width:72px;font-size:12px;padding:6px 8px" min="0" max="100">
       <input type="text" id="f-search" oninput="adminFilter()" placeholder="Search name/company..." style="width:160px;font-size:12px;padding:6px 10px">
@@ -617,12 +618,14 @@ function _renderAdminTable(){
   const fs=document.getElementById('f-status')?.value||'All statuses';
   const fe=document.getElementById('f-elig')?.value||'All eligibility';
   const fq=(document.getElementById('f-search')?.value||'').toLowerCase();
+  const fcity=document.getElementById('f-city')?.value||'All cities';
   const fmin=parseInt(document.getElementById('f-score-min')?.value,10);
   const fmax=parseInt(document.getElementById('f-score-max')?.value,10);
   let list=customers;
   if(fc!=='All callers') list=list.filter(c=>callerName(c.callerId)===fc);
   if(fs!=='All statuses') list=list.filter(c=>c.status===fs);
   if(fe!=='All eligibility') list=list.filter(c=>c.eligibility===fe);
+  if(fcity!=='All cities') list=list.filter(c=>(c.city||'')=== fcity);
   if(fq) list=list.filter(c=>c.name.toLowerCase().includes(fq)||c.company.toLowerCase().includes(fq));
   if(!isNaN(fmin)&&fmin>0) list=list.filter(c=>c.score>=fmin);
   if(!isNaN(fmax)&&fmax<100) list=list.filter(c=>c.score<=fmax);
@@ -1471,6 +1474,7 @@ function renderCaller(){
   // Quick-action filter counts
   const callableCount=baseList.filter(function(c){const p=c.phone!=null?String(c.phone):'';return p&&p!=='—'&&p.trim()!=='';}).length;
   const sharedCount=baseList.filter(c=>(c.waCount||0)>0).length;
+  const cityOpts=[...new Set(baseList.map(c=>c.city||'').filter(Boolean))].sort().map(c=>'<option>'+c+'</option>').join('');
 
   document.getElementById('page-caller').innerHTML=
     '<div class="g4" style="margin-bottom:14px">'
@@ -1499,6 +1503,8 @@ function renderCaller(){
     +'<input type="number" id="caller-score-min" oninput="filterCallerCards()" placeholder="Min" style="width:62px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--rs);background:var(--card)" min="0" max="100">'
     +'<span style="font-size:12px;color:var(--text2);align-self:center"> – </span>'
     +'<input type="number" id="caller-score-max" oninput="filterCallerCards()" placeholder="Max" style="width:62px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--rs);background:var(--card)" min="0" max="100">'
+    +'<span style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.05em;margin-left:6px">CITY:</span>'
+    +'<select id="caller-city" onchange="filterCallerCards()" style="font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--rs);background:var(--card)"><option>All cities</option>'+cityOpts+'</select>'
     +'</div>'
     +'<div id="caller-cards"></div>';
   filterCallerCards();
@@ -1524,37 +1530,22 @@ const _CALLER_PAGE_SIZE=50;
 function filterCallerCards(){_callerPage=1;_doRenderCallerCards();}
 function callerLoadMore(){_callerPage++;_doRenderCallerCards();}
 
-function _doRenderCallerCards(){
+function _buildCallerBase(){
   const allActive=currentRole==='admin';
-  let list=allActive?customers:customers.filter(c=>c.callerId===currentCallerId);
-  if(allActive&&_callerFilter.callerId!=='all') list=list.filter(c=>c.callerId===_callerFilter.callerId);
-  const st=_callerFilter.status;
-  if(st==='callable') list=list.filter(function(c){const p=c.phone!=null?String(c.phone):'';return p&&p!=='—'&&p.trim()!=='';});
-  else if(st==='shared') list=list.filter(c=>(c.waCount||0)>0);
-  else if(st!=='all') list=list.filter(c=>c.status===st);
+  let base=allActive?customers:customers.filter(c=>c.callerId===currentCallerId);
+  if(allActive&&_callerFilter.callerId!=='all') base=base.filter(c=>c.callerId===_callerFilter.callerId);
   const q=(document.getElementById('caller-search')?.value||'').toLowerCase().trim();
-  if(q) list=list.filter(c=>(c.name||'').toLowerCase().includes(q)||(c.company||'').toLowerCase().includes(q)||String(c.phone||'').includes(q));
+  if(q) base=base.filter(c=>(c.name||'').toLowerCase().includes(q)||(c.company||'').toLowerCase().includes(q)||String(c.phone||'').includes(q));
   const csmin=parseInt(document.getElementById('caller-score-min')?.value,10);
   const csmax=parseInt(document.getElementById('caller-score-max')?.value,10);
-  if(!isNaN(csmin)&&csmin>0) list=list.filter(c=>c.score>=csmin);
-  if(!isNaN(csmax)&&csmax<100) list=list.filter(c=>c.score<=csmax);
-  const total=list.length;
-  const page=list.slice(0,_callerPage*_CALLER_PAGE_SIZE);
-  const el=document.getElementById('caller-cards');
-  if(!el) return;
-  if(!total){
-    el.innerHTML=`<div style="text-align:center;padding:40px 20px;color:var(--text2)"><i class="ti ti-search-off" style="font-size:36px;display:block;margin-bottom:8px"></i><div style="font-weight:600">No contacts match</div><div style="font-size:12px;margin-top:4px">Try a different filter or search term</div></div>`;
-    return;
-  }
-  el.innerHTML=page.map(c=>callerCard(c)).join('');
-  if(page.length<total){
-    el.innerHTML+=`<div style="text-align:center;padding:16px 0"><button onclick="callerLoadMore()" style="font-size:12px;padding:7px 20px;border-radius:20px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600"><i class="ti ti-chevron-down" style="font-size:11px;margin-right:4px"></i>Show more (${total-page.length} remaining)</button></div>`;
-  }
+  const ccity=document.getElementById('caller-city')?.value||'All cities';
+  if(!isNaN(csmin)&&csmin>0) base=base.filter(c=>c.score>=csmin);
+  if(!isNaN(csmax)&&csmax<100) base=base.filter(c=>c.score<=csmax);
+  if(ccity!=='All cities') base=base.filter(c=>(c.city||'')===ccity);
+  return base;
 }
 
-function _refreshCallerStats(){
-  const allActive=currentRole==='admin';
-  const base=allActive?customers:customers.filter(c=>c.callerId===currentCallerId);
+function _updateCallerChips(base){
   const done=base.filter(c=>c.status!=='Not Called').length;
   const interested=base.filter(c=>c.status==='Interested').length;
   const el_a=document.getElementById('mc-assigned');   if(el_a)el_a.textContent=base.length;
@@ -1572,6 +1563,33 @@ function _refreshCallerStats(){
     else n=base.filter(function(c){return c.status===key;}).length;
     fc.textContent=n;
   });
+}
+
+function _doRenderCallerCards(){
+  const base=_buildCallerBase();
+  _updateCallerChips(base);
+  let list=base.slice();
+  const st=_callerFilter.status;
+  if(st==='callable') list=list.filter(function(c){const p=c.phone!=null?String(c.phone):'';return p&&p!=='—'&&p.trim()!=='';});
+  else if(st==='shared') list=list.filter(c=>(c.waCount||0)>0);
+  else if(st!=='all') list=list.filter(c=>c.status===st);
+  const total=list.length;
+  const page=list.slice(0,_callerPage*_CALLER_PAGE_SIZE);
+  const el=document.getElementById('caller-cards');
+  if(!el) return;
+  if(!total){
+    el.innerHTML=`<div style="text-align:center;padding:40px 20px;color:var(--text2)"><i class="ti ti-search-off" style="font-size:36px;display:block;margin-bottom:8px"></i><div style="font-weight:600">No contacts match</div><div style="font-size:12px;margin-top:4px">Try a different filter or search term</div></div>`;
+    return;
+  }
+  el.innerHTML=page.map(c=>callerCard(c)).join('');
+  if(page.length<total){
+    el.innerHTML+=`<div style="text-align:center;padding:16px 0"><button onclick="callerLoadMore()" style="font-size:12px;padding:7px 20px;border-radius:20px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600"><i class="ti ti-chevron-down" style="font-size:11px;margin-right:4px"></i>Show more (${total-page.length} remaining)</button></div>`;
+  }
+}
+
+function _refreshCallerStats(){
+  const base=_buildCallerBase();
+  _updateCallerChips(base);
 }
 
 function callerCard(c){
@@ -2434,6 +2452,31 @@ function setSyncStatus(s,msg){
   else                   el.innerHTML='<i class="ti ti-cloud" style="color:rgba(255,255,255,0.55)"></i> Cloud';
 }
 
+function _syncAdmin(){
+  const saved={
+    caller: document.getElementById('f-caller')?.value,
+    status: document.getElementById('f-status')?.value,
+    elig:   document.getElementById('f-elig')?.value,
+    city:   document.getElementById('f-city')?.value,
+    smin:   document.getElementById('f-score-min')?.value,
+    smax:   document.getElementById('f-score-max')?.value,
+    q:      document.getElementById('f-search')?.value,
+  };
+  renderAdmin();
+  if(saved.caller) { const el=document.getElementById('f-caller');   if(el) el.value=saved.caller; }
+  if(saved.status) { const el=document.getElementById('f-status');   if(el) el.value=saved.status; }
+  if(saved.elig)   { const el=document.getElementById('f-elig');     if(el) el.value=saved.elig; }
+  if(saved.city)   { const el=document.getElementById('f-city');     if(el) el.value=saved.city; }
+  if(saved.smin)   { const el=document.getElementById('f-score-min');if(el) el.value=saved.smin; }
+  if(saved.smax)   { const el=document.getElementById('f-score-max');if(el) el.value=saved.smax; }
+  if(saved.q)      { const el=document.getElementById('f-search');   if(el) el.value=saved.q; }
+  adminFilter();
+}
+
+function _syncCaller(){
+  _doRenderCallerCards();
+}
+
 // Other users' edits arrive here
 window.addEventListener('cloud-remote-change',e=>{
   const d=e.detail||{}; let touched=false;
@@ -2471,8 +2514,8 @@ window.addEventListener('cloud-remote-change',e=>{
     const active=document.querySelector('.page.active');
     if(active){
       const id=active.id;
-      if(id==='page-admin')   renderAdmin();
-      else if(id==='page-caller')  renderCaller();
+      if(id==='page-admin')   _syncAdmin();
+      else if(id==='page-caller')  _syncCaller();
       else if(id==='page-reports') renderReports();
       else if(id==='page-settings')renderSettings();
     }
