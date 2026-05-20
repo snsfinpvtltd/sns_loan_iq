@@ -590,6 +590,8 @@ function renderAdmin(){
       <select onchange="adminFilter()" id="f-caller" style="width:auto;font-size:12px"><option>All callers</option>${callers.map(c=>`<option>${c.name}</option>`).join('')}</select>
       <select onchange="adminFilter()" id="f-status" style="width:auto;font-size:12px"><option>All statuses</option>${STATUSES.map(s=>`<option>${s}</option>`).join('')}</select>
       <select onchange="adminFilter()" id="f-elig" style="width:auto;font-size:12px"><option>All eligibility</option><option>High</option><option>Moderate</option><option>Low</option></select>
+      <input type="number" id="f-score-min" oninput="adminFilter()" placeholder="Min score" style="width:72px;font-size:12px;padding:6px 8px" min="0" max="100">
+      <input type="number" id="f-score-max" oninput="adminFilter()" placeholder="Max score" style="width:72px;font-size:12px;padding:6px 8px" min="0" max="100">
       <input type="text" id="f-search" oninput="adminFilter()" placeholder="Search name/company..." style="width:160px;font-size:12px;padding:6px 10px">
     </div>
   </div>
@@ -604,19 +606,31 @@ function renderAdmin(){
   renderArchivedBatches();
 }
 
-function adminFilter(){
+let _adminPage=1;
+const _ADMIN_PAGE_SIZE=100;
+
+function adminFilter(){_adminPage=1;_renderAdminTable();}
+function adminLoadMore(){_adminPage++;_renderAdminTable();}
+
+function _renderAdminTable(){
   const fc=document.getElementById('f-caller')?.value||'All callers';
   const fs=document.getElementById('f-status')?.value||'All statuses';
   const fe=document.getElementById('f-elig')?.value||'All eligibility';
   const fq=(document.getElementById('f-search')?.value||'').toLowerCase();
+  const fmin=parseInt(document.getElementById('f-score-min')?.value,10);
+  const fmax=parseInt(document.getElementById('f-score-max')?.value,10);
   let list=customers;
   if(fc!=='All callers') list=list.filter(c=>callerName(c.callerId)===fc);
   if(fs!=='All statuses') list=list.filter(c=>c.status===fs);
   if(fe!=='All eligibility') list=list.filter(c=>c.eligibility===fe);
   if(fq) list=list.filter(c=>c.name.toLowerCase().includes(fq)||c.company.toLowerCase().includes(fq));
+  if(!isNaN(fmin)&&fmin>0) list=list.filter(c=>c.score>=fmin);
+  if(!isNaN(fmax)&&fmax<100) list=list.filter(c=>c.score<=fmax);
+  const total=list.length;
+  const page=list.slice(0,_adminPage*_ADMIN_PAGE_SIZE);
   const tbody=document.getElementById('admin-tbody');
   if(!tbody) return;
-  tbody.innerHTML=list.map((c,i)=>{
+  tbody.innerHTML=page.map((c,i)=>{
     const [bg,fg]=ac(c.name);
     return`<tr onclick="openProfile(${c.id})">
       <td style="color:var(--text2)">${i+1}</td>
@@ -630,6 +644,9 @@ function adminFilter(){
       <td>${fmtContactStatus(c)}</td>
       <td><span style="font-size:11px;font-weight:600;color:${c.enriched?'#27500A':'#bbb'}">${c.enriched?'✓ Done':'Pending'}</span></td>
     </tr>`;}).join('');
+  if(page.length<total){
+    tbody.innerHTML+=`<tr><td colspan="10" style="text-align:center;padding:14px 0"><button onclick="adminLoadMore()" style="font-size:12px;padding:7px 20px;border-radius:20px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600"><i class="ti ti-chevron-down" style="font-size:11px;margin-right:4px"></i>Load more (${total-page.length} remaining)</button></td></tr>`;
+  }
 }
 
 function handleDrop(event){
@@ -1455,8 +1472,6 @@ function renderCaller(){
   const callableCount=baseList.filter(function(c){const p=c.phone!=null?String(c.phone):'';return p&&p!=='—'&&p.trim()!=='';}).length;
   const sharedCount=baseList.filter(c=>(c.waCount||0)>0).length;
 
-  const cards=baseList.map(c=>callerCard(c)).join('');
-
   document.getElementById('page-caller').innerHTML=
     '<div class="g4" style="margin-bottom:14px">'
     +'<div class="mc"><div class="mc-v" id="mc-assigned">'+baseList.length+'</div><div class="mc-l">Assigned</div></div>'
@@ -1474,12 +1489,19 @@ function renderCaller(){
     +'<span class="f-chip active-f" data-fk="all" onclick="setCallerFilter(\'all\',this)">All <span class="fc">'+baseList.length+'</span></span>'
     +chips
     +'</div>'
-    +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:14px">'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">'
     +'<span style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.05em">QUICK:</span>'
     +'<span class="f-chip" data-fk="callable" onclick="setCallerFilter(\'callable\',this)"><i class="ti ti-phone-call" style="font-size:11px;color:#1B6B3A"></i> Call Now <span class="fc">'+callableCount+'</span></span>'
     +'<span class="f-chip" data-fk="shared" onclick="setCallerFilter(\'shared\',this)"><i class="ti ti-brand-whatsapp" style="font-size:11px;color:#25D366"></i> WA Shared <span class="fc">'+sharedCount+'</span></span>'
     +'</div>'
-    +'<div id="caller-cards">'+cards+'</div>';
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:14px">'
+    +'<span style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.05em">SCORE:</span>'
+    +'<input type="number" id="caller-score-min" oninput="filterCallerCards()" placeholder="Min" style="width:62px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--rs);background:var(--card)" min="0" max="100">'
+    +'<span style="font-size:12px;color:var(--text2);align-self:center"> – </span>'
+    +'<input type="number" id="caller-score-max" oninput="filterCallerCards()" placeholder="Max" style="width:62px;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--rs);background:var(--card)" min="0" max="100">'
+    +'</div>'
+    +'<div id="caller-cards"></div>';
+  filterCallerCards();
 }
 
 function filterCallerView(callerId,el){
@@ -1496,7 +1518,13 @@ function setCallerFilter(status,el){
   filterCallerCards();
 }
 
-function filterCallerCards(){
+let _callerPage=1;
+const _CALLER_PAGE_SIZE=50;
+
+function filterCallerCards(){_callerPage=1;_doRenderCallerCards();}
+function callerLoadMore(){_callerPage++;_doRenderCallerCards();}
+
+function _doRenderCallerCards(){
   const allActive=currentRole==='admin';
   let list=allActive?customers:customers.filter(c=>c.callerId===currentCallerId);
   if(allActive&&_callerFilter.callerId!=='all') list=list.filter(c=>c.callerId===_callerFilter.callerId);
@@ -1506,9 +1534,22 @@ function filterCallerCards(){
   else if(st!=='all') list=list.filter(c=>c.status===st);
   const q=(document.getElementById('caller-search')?.value||'').toLowerCase().trim();
   if(q) list=list.filter(c=>(c.name||'').toLowerCase().includes(q)||(c.company||'').toLowerCase().includes(q)||String(c.phone||'').includes(q));
-  document.getElementById('caller-cards').innerHTML=list.length
-    ?list.map(c=>callerCard(c)).join('')
-    :`<div style="text-align:center;padding:40px 20px;color:var(--text2)"><i class="ti ti-search-off" style="font-size:36px;display:block;margin-bottom:8px"></i><div style="font-weight:600">No contacts match</div><div style="font-size:12px;margin-top:4px">Try a different filter or search term</div></div>`;
+  const csmin=parseInt(document.getElementById('caller-score-min')?.value,10);
+  const csmax=parseInt(document.getElementById('caller-score-max')?.value,10);
+  if(!isNaN(csmin)&&csmin>0) list=list.filter(c=>c.score>=csmin);
+  if(!isNaN(csmax)&&csmax<100) list=list.filter(c=>c.score<=csmax);
+  const total=list.length;
+  const page=list.slice(0,_callerPage*_CALLER_PAGE_SIZE);
+  const el=document.getElementById('caller-cards');
+  if(!el) return;
+  if(!total){
+    el.innerHTML=`<div style="text-align:center;padding:40px 20px;color:var(--text2)"><i class="ti ti-search-off" style="font-size:36px;display:block;margin-bottom:8px"></i><div style="font-weight:600">No contacts match</div><div style="font-size:12px;margin-top:4px">Try a different filter or search term</div></div>`;
+    return;
+  }
+  el.innerHTML=page.map(c=>callerCard(c)).join('');
+  if(page.length<total){
+    el.innerHTML+=`<div style="text-align:center;padding:16px 0"><button onclick="callerLoadMore()" style="font-size:12px;padding:7px 20px;border-radius:20px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600"><i class="ti ti-chevron-down" style="font-size:11px;margin-right:4px"></i>Show more (${total-page.length} remaining)</button></div>`;
+  }
 }
 
 function _refreshCallerStats(){
