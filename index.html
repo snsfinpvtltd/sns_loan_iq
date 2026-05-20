@@ -1222,7 +1222,7 @@ async function enrichAll(){
   for(let i=0;i<pending.length;i++){
     const c=pending[i];
     msg.innerHTML=`<span style="color:var(--blue)">AI enriching ${i+1}/${pending.length}: ${c.name}...</span>`;
-    try{c.aiInsight=await getAIInsight(c);c.enriched=true;}
+    try{c.aiInsight=_parseAIResult(c,await getAIInsight(c));c.enriched=true;}
     catch(e){c.aiInsight='Insight pending — check AI settings.';}
     await new Promise(r=>setTimeout(r,600));
   }
@@ -1731,7 +1731,7 @@ function saveCall(id){
 async function enrichOne(id,btn){
   const c=customers.find(x=>x.id===id);
   btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Generating...';
-  try{c.aiInsight=await getAIInsight(c);c.enriched=true;save();document.getElementById('cc-'+id).outerHTML=callerCard(c);}
+  try{c.aiInsight=_parseAIResult(c,await getAIInsight(c));c.enriched=true;save();document.getElementById('cc-'+id).outerHTML=callerCard(c);}
   catch(e){btn.disabled=false;btn.innerHTML='<i class="ti ti-brain"></i> Generate';showToast('Error: Check AI settings','#A32D2D');}
 }
 
@@ -1746,30 +1746,41 @@ function ruleInsight(c){
   return `${c.name} is ${isOwner?'a business owner':'employed'} in ${sector} based in ${area}. ${isOwner?'Self-employed profile — high likelihood of working capital or expansion loan need.':'Salaried profile — personal or vehicle loan most likely.'} Recommend ${c.loan} of ${loanRange}. ${risk} Caller tip: Lead with ${c.score>=80?'fast processing and low interest rate':'flexible repayment options'}.`;
 }
 
+function _parseAIResult(c, raw){
+  const m=raw.match(/SCORE:\s*(\d+)/i);
+  if(m){
+    const s=Math.min(100,Math.max(0,parseInt(m[1],10)));
+    c.score=s;
+    c.eligibility=s>=80?'High':s>=60?'Moderate':'Low';
+    c.loan=s>=80?'Business / MSME Loan':s>=60?'Personal Loan':'Micro Loan';
+  }
+  return raw.replace(/\n?SCORE:\s*\d+[^\n]*/i,'').trim();
+}
+
 async function getAIInsight(c){
-  const prompt=`You are a loan officer AI giving a caller a brief. 3 sentences only. Customer: ${c.name}, Company: ${c.company}, Role: ${c.designation}, Sector: ${SECTOR_MAP[c.company]||'Business'}, Location: ${c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city}, Score: ${c.score}/100, Loan: ${c.loan}. Cover: business strength, recommended loan amount in INR, one specific action for the caller.`;
+  const prompt=`You are a loan officer AI giving a caller a brief. Write exactly 3 sentences covering: business strength, recommended loan amount in INR, one specific action for the caller. Then on a new line write SCORE:[0-100] reflecting this customer's loan repayment capacity and eligibility (80-100=High, 60-79=Moderate, below 60=Low). Customer: ${c.name}, Company: ${c.company}, Role: ${c.designation}, Sector: ${SECTOR_MAP[c.company]||'Business'}, Location: ${c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city}, Loan type: ${c.loan}.`;
   if(aiCfg.provider==='rule') return ruleInsight(c);
   // Use in-memory decrypted key ONLY — never aiCfg.key (always empty)
   const key = _decryptedApiKey;
   if(!key) return ruleInsight(c)+'  [AI key locked — open AI Settings and enter Master Password to unlock]';
   try{
     if(aiCfg.provider==='groq'){
-      const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:aiCfg.model,max_tokens:200,messages:[{role:'user',content:prompt}]})});
+      const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:aiCfg.model,max_tokens:250,messages:[{role:'user',content:prompt}]})});
       const d=await r.json();if(d.error)throw new Error(d.error.message);
       return d.choices[0].message.content;
     }
     if(aiCfg.provider==='gemini'){
-      const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiCfg.model}:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:200}})});
+      const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiCfg.model}:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:250}})});
       const d=await r.json();if(d.error)throw new Error(d.error.message);
       return d.candidates[0].content.parts[0].text;
     }
     if(aiCfg.provider==='anthropic'){
-      const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:aiCfg.model,max_tokens:200,messages:[{role:'user',content:prompt}]})});
+      const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:aiCfg.model,max_tokens:250,messages:[{role:'user',content:prompt}]})});
       const d=await r.json();if(d.error)throw new Error(d.error.message);
       return d.content[0].text;
     }
     if(aiCfg.provider==='openai'){
-      const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:aiCfg.model,max_tokens:200,messages:[{role:'user',content:prompt}]})});
+      const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:aiCfg.model,max_tokens:250,messages:[{role:'user',content:prompt}]})});
       const d=await r.json();if(d.error)throw new Error(d.error.message);
       return d.choices[0].message.content;
     }
@@ -2350,7 +2361,7 @@ async function enrichProfileNow(id){
   const c=customers.find(x=>x.id===id);
   const el=document.getElementById('profile-insight');
   if(el) el.textContent='Generating...';
-  try{c.aiInsight=await getAIInsight(c);c.enriched=true;save();if(el)el.textContent=c.aiInsight;}
+  try{c.aiInsight=_parseAIResult(c,await getAIInsight(c));c.enriched=true;save();if(el)el.textContent=c.aiInsight;}
   catch(e){if(el)el.textContent='Error — check AI settings.';showToast('AI error','#A32D2D');}
 }
 
