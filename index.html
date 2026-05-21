@@ -1364,8 +1364,9 @@ async function enrichAll(){
     c.enriched=false;c.aiInsight='';delete c.loanRange;delete c.priority;delete c.callerTip;
     msg.innerHTML=`<span style="color:var(--blue)"><i class="ti ti-loader" style="font-size:11px"></i> Analysing ${i+1}/${list.length}: ${c.name}...</span>`;
     try{
-      const raw=await getAIInsight(c);
-      c.aiInsight=_parseAIResult(c,raw);
+      const {text,usedProvider}=await getAIInsight(c);
+      c.aiInsight=_parseAIResult(c,text);
+      c.aiProvider=usedProvider;
       c.enriched=true;
     }catch(e){
       failed++;
@@ -1787,7 +1788,7 @@ function callerCard(c){
 
   <!-- AI ANALYSIS -->
   <div class="ai-box" style="margin-bottom:10px">
-    <div style="font-size:10px;font-weight:700;color:var(--gold);margin-bottom:8px;letter-spacing:.06em">AI ANALYSIS <span style="background:var(--navy);color:rgba(255,255,255,0.7);padding:1px 6px;border-radius:4px;font-size:9px;margin-left:4px">${aiCfg.provider.toUpperCase()}</span></div>
+    <div style="font-size:10px;font-weight:700;color:var(--gold);margin-bottom:8px;letter-spacing:.06em">AI ANALYSIS ${c.enriched&&c.aiProvider?`<span style="background:var(--navy);color:rgba(255,255,255,0.7);padding:1px 6px;border-radius:4px;font-size:9px;margin-left:4px">${c.aiProvider.toUpperCase()}</span>`:''}</div>
     ${c.enriched&&c.aiInsight
       ?`<div>
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -1897,8 +1898,9 @@ async function enrichOne(id,btn){
   btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Analysing...';
   c.enriched=false;c.aiInsight='';delete c.loanRange;delete c.priority;delete c.callerTip;
   try{
-    const raw=await getAIInsight(c);
-    c.aiInsight=_parseAIResult(c,raw);
+    const {text,usedProvider}=await getAIInsight(c);
+    c.aiInsight=_parseAIResult(c,text);
+    c.aiProvider=usedProvider;
     c.enriched=true;
     save();
     document.getElementById('cc-'+id).outerHTML=callerCard(c);
@@ -1952,7 +1954,7 @@ Designation: ${c.designation}
 Sector: ${sector}
 Location: ${area}
 Loan product: ${c.loan}`;
-  if(aiCfg.provider==='rule') return ruleInsight(c);
+  if(aiCfg.provider==='rule') return {text:ruleInsight(c), usedProvider:'rule'};
   const key = _vault.getClaude();
   if(!key) throw new Error('API key locked — enter Master Password in AI Settings to unlock.');
 
@@ -1961,15 +1963,14 @@ Loan product: ${c.loan}`;
     try{
       const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:aiCfg.model,max_tokens:450,messages:[{role:'user',content:prompt}]})});
       const d=await r.json();if(d.error)throw new Error(d.error.message);
-      return d.content[0].text;
+      return {text:d.content[0].text, usedProvider:'anthropic'};
     }catch(claudeErr){
-      // Auto-fallback to Groq if a fallback key is available
       const groqKey=_vault.getGroq();
       if(!groqKey) throw new Error('Claude failed: '+claudeErr.message);
       console.warn('[AI] Claude failed, falling back to Groq:', claudeErr.message);
       const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+groqKey},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:450,messages:[{role:'user',content:prompt}]})});
       const d=await r.json();if(d.error)throw new Error('Claude failed ('+claudeErr.message+'), Groq fallback also failed: '+d.error.message);
-      return d.choices[0].message.content;
+      return {text:d.choices[0].message.content, usedProvider:'groq'};
     }
   }
 
@@ -1977,17 +1978,17 @@ Loan product: ${c.loan}`;
   if(aiCfg.provider==='groq'){
     const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:aiCfg.model,max_tokens:450,messages:[{role:'user',content:prompt}]})});
     const d=await r.json();if(d.error)throw new Error('Groq: '+d.error.message);
-    return d.choices[0].message.content;
+    return {text:d.choices[0].message.content, usedProvider:'groq'};
   }
   if(aiCfg.provider==='gemini'){
     const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiCfg.model}:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:450}})});
     const d=await r.json();if(d.error)throw new Error('Gemini: '+d.error.message);
-    return d.candidates[0].content.parts[0].text;
+    return {text:d.candidates[0].content.parts[0].text, usedProvider:'gemini'};
   }
   if(aiCfg.provider==='openai'){
     const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:aiCfg.model,max_tokens:450,messages:[{role:'user',content:prompt}]})});
     const d=await r.json();if(d.error)throw new Error('OpenAI: '+d.error.message);
-    return d.choices[0].message.content;
+    return {text:d.choices[0].message.content, usedProvider:'openai'};
   }
   throw new Error('Unknown AI provider: '+aiCfg.provider);
 }
@@ -2531,8 +2532,8 @@ async function testAI(){
   const tmpCfg = {provider:document.getElementById('ai-provider-sel').value, model:document.getElementById('model-sel').value, key:testKey};
   const saved = aiCfg; aiCfg = tmpCfg;
   try {
-    const r = await getAIInsight(customers[0]);
-    res.innerHTML = `<span style="color:var(--green)">✓ Connected! Sample: "${r.slice(0,80)}..."</span>`;
+    const {text,usedProvider} = await getAIInsight(customers[0]);
+    res.innerHTML = `<span style="color:var(--green)">✓ Connected via ${usedProvider.toUpperCase()}! Sample: "${text.slice(0,80)}..."</span>`;
   } catch(e) { res.innerHTML = `<span style="color:var(--red)">✗ Error: ${e.message}</span>`; }
   aiCfg = saved; btn.disabled = false; btn.textContent = 'Test connection';
 }
@@ -2603,7 +2604,7 @@ function openProfile(id){
   </div>
   <div>
     <div class="card">
-      <div class="card-title">AI analysis <span class="badge b-gray" style="font-size:9px">${aiCfg.provider.toUpperCase()}</span></div>
+      <div class="card-title">AI analysis ${c.enriched&&c.aiProvider?`<span class="badge b-gray" style="font-size:9px">${c.aiProvider.toUpperCase()}</span>`:''}</div>
       <div id="profile-insight">${_profileInsightHTML(c)}</div>
       <button onclick="enrichProfileNow(${c.id})" style="margin-top:8px;font-size:11px"><i class="ti ti-refresh"></i> Regenerate analysis</button>
     </div>
@@ -2657,10 +2658,15 @@ async function enrichProfileNow(id){
   const el=document.getElementById('profile-insight');
   if(el) el.innerHTML='<div class="ai-box" style="color:var(--text2)">Generating analysis...</div>';
   try{
-    c.aiInsight=_parseAIResult(c,await getAIInsight(c));
+    const {text,usedProvider}=await getAIInsight(c);
+    c.aiInsight=_parseAIResult(c,text);
+    c.aiProvider=usedProvider;
     c.enriched=true;
     save();
     if(el) el.innerHTML=_profileInsightHTML(c);
+    // refresh badge in profile header
+    const badge=document.querySelector('#profile-modal .card-title .badge');
+    if(badge) badge.textContent=usedProvider.toUpperCase();
   }catch(e){
     if(el) el.innerHTML='<div class="ai-box" style="color:var(--red)">Error — check AI settings.</div>';
     showToast('AI error','#A32D2D');
