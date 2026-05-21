@@ -2847,11 +2847,6 @@ function exportPDF(){
   });
   doc.save('SNS_LoanIQ_'+today()+'.pdf');
   showToast('PDF exported - '+list.length+' records');
-}"`).join(',')).join('\n');
-  const a=document.createElement('a');
-  a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
-  a.download='loaniq_'+today()+'.csv';a.click();
-  showToast('CSV exported');
 }
 
 // ── CLOUD SYNC INTEGRATION ─────────────────────────────────────────
