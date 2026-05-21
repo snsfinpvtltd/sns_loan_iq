@@ -410,9 +410,9 @@ button:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
     <div style="margin-bottom:14px">
       <label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:6px;letter-spacing:.06em">AI PROVIDER</label>
       <select id="ai-provider-sel" onchange="updateProviderUI()" style="font-size:13px">
+        <option value="anthropic">Anthropic Claude Haiku (Primary — best analysis)</option>
         <option value="groq">Groq (Free — Llama 3.3 70B)</option>
         <option value="gemini">Google Gemini (Free tier)</option>
-        <option value="anthropic">Anthropic Claude (Paid — best quality)</option>
         <option value="openai">OpenAI GPT-4o (Paid)</option>
         <option value="rule">Rule-based (No API — fully offline)</option>
       </select>
@@ -440,6 +440,16 @@ button:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
         <option value="llama-3.3-70b-versatile">Llama 3.3 70B (default)</option>
       </select>
     </div>
+
+    <!-- Groq Fallback Key — shown only when Anthropic is selected -->
+    <div id="groq-fallback-section" style="display:none;margin-bottom:14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:12px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;letter-spacing:.06em;display:flex;align-items:center;gap:6px">
+        <i class="ti ti-refresh-alert" style="color:var(--blue)"></i> GROQ FALLBACK KEY <span style="font-weight:400;font-size:10px">(optional — used automatically if Claude fails)</span>
+      </div>
+      <input type="password" id="groq-fallback-inp" placeholder="Paste Groq API key for fallback..." style="font-family:monospace;margin-bottom:4px"/>
+      <div style="font-size:11px;color:var(--text2)" id="groq-fallback-status">Free key at console.groq.com → API Keys</div>
+    </div>
+
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="primary" onclick="saveAISettings()"><i class="ti ti-device-floppy"></i> Encrypt &amp; Save</button>
       <button onclick="testAI()"><i class="ti ti-plug"></i> Test connection</button>
@@ -537,7 +547,7 @@ const AVATAR_COLORS=[['#E6F1FB','#0C447C'],['#EAF3DE','#27500A'],['#FAEEDA','#85
 const PROVIDER_INFO={
   groq:{label:'Groq — Free forever. No credit card.',help:'Get free key at console.groq.com → API Keys',models:['llama-3.3-70b-versatile','llama-3.1-8b-instant','mixtral-8x7b-32768']},
   gemini:{label:'Google Gemini — Free tier: 15 req/min, 1M tokens/day.',help:'Get free key at aistudio.google.com/apikey',models:['gemini-1.5-flash','gemini-1.5-pro','gemini-2.0-flash']},
-  anthropic:{label:'Anthropic Claude — Best quality. ~₹0.20/customer.',help:'Get key at console.anthropic.com',models:['claude-sonnet-4-20250514','claude-haiku-4-5-20251001']},
+  anthropic:{label:'Anthropic Claude Haiku — Primary provider. ~₹0.04/customer. Groq auto-fallback if configured.',help:'Get key at console.anthropic.com → API Keys',models:['claude-haiku-4-5-20251001','claude-sonnet-4-20250514']},
   openai:{label:'OpenAI — Paid. GPT-4o quality.',help:'Get key at platform.openai.com/api-keys',models:['gpt-4o','gpt-4o-mini','gpt-3.5-turbo']},
   rule:{label:'Rule-based — No API needed. Works fully offline.',help:'No API key required.',models:['offline']}
 };
@@ -552,7 +562,7 @@ let callers=loadState('callers',[
   {id:'c4',name:'Ravi T',active:true,color:3}
 ]);
 
-let aiCfg=loadState('aicfg',{provider:'groq',model:'llama-3.3-70b-versatile',key:''});
+let aiCfg=loadState('aicfg',{provider:'anthropic',model:'claude-haiku-4-5-20251001',key:''});
 
 let customers=loadState('customers',[
   {id:1,name:'Senthil Kumar',company:'Sivanithra Associates',designation:'—',email:'valadisenthil@gmail.com',phone:'9942199999',pin:'—',city:'Tiruchirappalli',score:47,eligibility:'Low',loan:'Micro Loan',callerId:'c1',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:''},
@@ -770,7 +780,7 @@ function _renderAdminTable(){
       <td><span class="status-pill" style="background:${STATUS_BG[c.status]};color:${STATUS_COLOR[c.status]}"><span class="dot" style="background:${STATUS_COLOR[c.status]}"></span>${c.status}</span></td>
       <td>${fmtUpload(c.uploadedAt)}</td>
       <td>${fmtContactStatus(c)}</td>
-      <td><span style="font-size:11px;font-weight:600;color:${c.enriched?'#27500A':'#bbb'}">${c.enriched?'✓ Done':'Pending'}</span></td>
+      <td>${c.enriched?`<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start"><span style="font-size:11px;font-weight:600;color:#27500A">&#x2713; Done</span>${c.priority?`<span class="badge ${c.priority==='High'?'b-green':c.priority==='Medium'?'b-amber':'b-gray'}" style="font-size:9px">${c.priority}</span>`:''}</div>`:`<span style="font-size:11px;color:#bbb">Pending</span>`}</td>
     </tr>`;}).join('');
   if(page.length<total){
     tbody.innerHTML+=`<tr><td colspan="10" style="text-align:center;padding:14px 0"><button onclick="adminLoadMore()" style="font-size:12px;padding:7px 20px;border-radius:20px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600"><i class="ti ti-chevron-down" style="font-size:11px;margin-right:4px"></i>Load more (${total-page.length} remaining)</button></td></tr>`;
@@ -1344,15 +1354,29 @@ async function enrichAll(){
   btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Enriching...';
   const msg=document.getElementById('upload-msg');
   const list=customers.slice();
+  let failed=0;
   for(let i=0;i<list.length;i++){
     const c=list[i];
-    msg.innerHTML=`<span style="color:var(--blue)">AI enriching ${i+1}/${list.length}: ${c.name}...</span>`;
-    try{c.aiInsight=_parseAIResult(c,await getAIInsight(c));c.enriched=true;}
-    catch(e){c.aiInsight='Insight pending — check AI settings.';}
+    // clear previous AI data so stale results never show
+    c.enriched=false;c.aiInsight='';delete c.loanRange;delete c.priority;delete c.callerTip;
+    msg.innerHTML=`<span style="color:var(--blue)"><i class="ti ti-loader" style="font-size:11px"></i> Analysing ${i+1}/${list.length}: ${c.name}...</span>`;
+    try{
+      const raw=await getAIInsight(c);
+      c.aiInsight=_parseAIResult(c,raw);
+      c.enriched=true;
+    }catch(e){
+      failed++;
+      c.aiInsight='';
+      msg.innerHTML=`<span style="color:#A32D2D">&#x26A0; ${c.name}: ${e.message}</span>`;
+      await new Promise(r=>setTimeout(r,1200));
+    }
     _renderAdminTable();
-    await new Promise(r=>setTimeout(r,600));
+    await new Promise(r=>setTimeout(r,500));
   }
-  save();msg.innerHTML=`<span style="color:#27500A">✓ Enrichment complete — scores updated from AI.</span>`;
+  save();
+  msg.innerHTML=failed
+    ?`<span style="color:#A32D2D">&#x26A0; Done — ${list.length-failed} enriched, ${failed} failed. Check AI Settings.</span>`
+    :`<span style="color:#27500A">&#x2713; All ${list.length} records enriched with online AI analysis.</span>`;
   btn.disabled=false;btn.innerHTML='<i class="ti ti-brain"></i> AI enrich all';
 }
 
@@ -1758,11 +1782,23 @@ function callerCard(c){
     Tap <strong style="margin:0 3px">Call Now</strong> to call directly from this app — no need to dial manually.
   </div>
 
-  <!-- AI INSIGHT -->
+  <!-- AI ANALYSIS -->
   <div class="ai-box" style="margin-bottom:10px">
-    <div style="font-size:10px;font-weight:700;color:var(--gold);margin-bottom:5px;letter-spacing:.06em">AI INSIGHT <span style="background:var(--navy);color:rgba(255,255,255,0.7);padding:1px 6px;border-radius:4px;font-size:9px;margin-left:4px">${aiCfg.provider.toUpperCase()}</span></div>
+    <div style="font-size:10px;font-weight:700;color:var(--gold);margin-bottom:8px;letter-spacing:.06em">AI ANALYSIS <span style="background:var(--navy);color:rgba(255,255,255,0.7);padding:1px 6px;border-radius:4px;font-size:9px;margin-left:4px">${aiCfg.provider.toUpperCase()}</span></div>
     ${c.enriched&&c.aiInsight
-      ?`<div style="font-size:12px;line-height:1.7;color:var(--text)">${c.aiInsight}</div>`
+      ?`<div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <div class="prog-bg" style="flex:1;height:8px"><div class="prog-f" style="width:${c.score}%;background:${scoreColor(c.score)}"></div></div>
+            <span style="font-size:13px;font-weight:800;color:${scoreColor(c.score)}">${c.score}</span>
+            <span class="badge ${c.eligibility==='High'?'b-green':c.eligibility==='Moderate'?'b-amber':'b-red'}">${c.eligibility}</span>
+          </div>
+          <div style="font-size:12px;line-height:1.75;color:var(--text);margin-bottom:8px">${c.aiInsight}</div>
+          ${c.loanRange||c.priority?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+            ${c.loanRange?`<span class="badge b-blue" style="font-size:10px">&#x1F4B0; ${c.loanRange}</span>`:''}
+            ${c.priority?`<span class="badge ${c.priority==='High'?'b-green':c.priority==='Medium'?'b-amber':'b-gray'}" style="font-size:10px">&#x26A1; ${c.priority} Priority</span>`:''}
+          </div>`:''}
+          ${c.callerTip?`<div style="background:var(--navy);color:#fff;border-radius:var(--rs);padding:10px 12px;font-size:12px;line-height:1.6"><span style="font-size:9px;font-weight:700;opacity:.65;letter-spacing:.07em;display:block;margin-bottom:3px">CALLER TIP</span>${c.callerTip}</div>`:''}
+        </div>`
       :`<div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;color:var(--text2)">Not enriched yet</span><button onclick="enrichOne(${c.id},this)" style="font-size:11px;padding:5px 10px"><i class="ti ti-brain"></i> Generate</button></div>`}
   </div>
 
@@ -1855,9 +1891,18 @@ function saveCall(id){
 
 async function enrichOne(id,btn){
   const c=customers.find(x=>x.id===id);
-  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Generating...';
-  try{c.aiInsight=_parseAIResult(c,await getAIInsight(c));c.enriched=true;save();document.getElementById('cc-'+id).outerHTML=callerCard(c);}
-  catch(e){btn.disabled=false;btn.innerHTML='<i class="ti ti-brain"></i> Generate';showToast('Error: Check AI settings','#A32D2D');}
+  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Analysing...';
+  c.enriched=false;c.aiInsight='';delete c.loanRange;delete c.priority;delete c.callerTip;
+  try{
+    const raw=await getAIInsight(c);
+    c.aiInsight=_parseAIResult(c,raw);
+    c.enriched=true;
+    save();
+    document.getElementById('cc-'+id).outerHTML=callerCard(c);
+  }catch(e){
+    btn.disabled=false;btn.innerHTML='<i class="ti ti-brain"></i> Generate';
+    showToast('AI error: '+e.message,'#A32D2D');
+  }
 }
 
 // ── AI ENGINE ──────────────────────────────────────────────────────
@@ -1872,45 +1917,76 @@ function ruleInsight(c){
 }
 
 function _parseAIResult(c, raw){
-  const m=raw.match(/SCORE:\s*(\d+)/i);
-  if(m){
-    const s=Math.min(100,Math.max(0,parseInt(m[1],10)));
+  const get=(key)=>{const m=raw.match(new RegExp(key+':\\s*([^\\n]+)','i'));return m?m[1].trim():'';};
+  const scoreStr=get('SCORE');
+  if(scoreStr){
+    const s=Math.min(100,Math.max(0,parseInt(scoreStr,10)));
     c.score=s;
     c.eligibility=s>=80?'High':s>=60?'Moderate':'Low';
     c.loan=s>=80?'Business / MSME Loan':s>=60?'Personal Loan':'Micro Loan';
   }
-  return raw.replace(/\n?SCORE:\s*\d+[^\n]*/i,'').trim();
+  const lr=get('LOAN_RANGE'); if(lr) c.loanRange=lr;
+  const pr=get('PRIORITY'); if(pr) c.priority=['High','Medium','Low'].find(x=>pr.toLowerCase().startsWith(x.toLowerCase()))||pr.split(/\s/)[0];
+  const ct=get('CALLER_TIP'); if(ct) c.callerTip=ct;
+  const analysis=get('ANALYSIS');
+  return analysis||raw.replace(/\n?(SCORE|CALLER_TIP|LOAN_RANGE|PRIORITY|ANALYSIS):\s*[^\n]*/gi,'').trim();
 }
 
 async function getAIInsight(c){
-  const prompt=`You are a loan officer AI giving a caller a brief. Write exactly 3 sentences covering: business strength, recommended loan amount in INR, one specific action for the caller. Then on a new line write SCORE:[0-100] reflecting this customer's loan repayment capacity and eligibility (80-100=High, 60-79=Moderate, below 60=Low). Customer: ${c.name}, Company: ${c.company}, Role: ${c.designation}, Sector: ${SECTOR_MAP[c.company]||'Business'}, Location: ${c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city}, Loan type: ${c.loan}.`;
+  const sector=SECTOR_MAP[c.company]||'Business';
+  const area=c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city;
+  const prompt=`You are a senior loan credit analyst at SNS Financial Services, India. Analyze this customer for loan eligibility and respond in EXACTLY this structured format (no preamble, no extra lines):
+
+ANALYSIS: [2-3 sentences: business profile, financial stability, credit risk assessment]
+LOAN_RANGE: [recommended loan amount range in INR, e.g. Rs.5L-Rs.15L]
+PRIORITY: [High or Medium or Low — urgency to call this lead]
+CALLER_TIP: [1 specific sentence on what the sales caller should say or do to convert this lead]
+SCORE: [integer 0-100 — loan repayment capacity. 80-100=High eligibility, 60-79=Moderate, below 60=Low]
+
+Customer: ${c.name}
+Company: ${c.company}
+Designation: ${c.designation}
+Sector: ${sector}
+Location: ${area}
+Loan product: ${c.loan}`;
   if(aiCfg.provider==='rule') return ruleInsight(c);
-  // Use in-memory decrypted key ONLY — never aiCfg.key (always empty)
   const key = _decryptedApiKey;
-  if(!key) return ruleInsight(c)+'  [AI key locked — open AI Settings and enter Master Password to unlock]';
-  try{
-    if(aiCfg.provider==='groq'){
-      const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:aiCfg.model,max_tokens:250,messages:[{role:'user',content:prompt}]})});
-      const d=await r.json();if(d.error)throw new Error(d.error.message);
-      return d.choices[0].message.content;
-    }
-    if(aiCfg.provider==='gemini'){
-      const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiCfg.model}:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:250}})});
-      const d=await r.json();if(d.error)throw new Error(d.error.message);
-      return d.candidates[0].content.parts[0].text;
-    }
-    if(aiCfg.provider==='anthropic'){
-      const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:aiCfg.model,max_tokens:250,messages:[{role:'user',content:prompt}]})});
+  if(!key) throw new Error('API key locked — enter Master Password in AI Settings to unlock.');
+
+  // ── Claude (Anthropic) — primary, with Groq auto-fallback ──
+  if(aiCfg.provider==='anthropic'){
+    try{
+      const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:aiCfg.model,max_tokens:450,messages:[{role:'user',content:prompt}]})});
       const d=await r.json();if(d.error)throw new Error(d.error.message);
       return d.content[0].text;
-    }
-    if(aiCfg.provider==='openai'){
-      const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:aiCfg.model,max_tokens:250,messages:[{role:'user',content:prompt}]})});
-      const d=await r.json();if(d.error)throw new Error(d.error.message);
+    }catch(claudeErr){
+      // Auto-fallback to Groq if a fallback key is available
+      const groqKey=_decryptedGroqKey;
+      if(!groqKey) throw new Error('Claude failed: '+claudeErr.message);
+      console.warn('[AI] Claude failed, falling back to Groq:', claudeErr.message);
+      const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+groqKey},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:450,messages:[{role:'user',content:prompt}]})});
+      const d=await r.json();if(d.error)throw new Error('Claude failed ('+claudeErr.message+'), Groq fallback also failed: '+d.error.message);
       return d.choices[0].message.content;
     }
-  }catch(e){return ruleInsight(c)+' [AI error — rule-based fallback used]';}
-  return ruleInsight(c);
+  }
+
+  // ── Other providers (no fallback) ──
+  if(aiCfg.provider==='groq'){
+    const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:aiCfg.model,max_tokens:450,messages:[{role:'user',content:prompt}]})});
+    const d=await r.json();if(d.error)throw new Error('Groq: '+d.error.message);
+    return d.choices[0].message.content;
+  }
+  if(aiCfg.provider==='gemini'){
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${aiCfg.model}:generateContent?key=${key}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:450}})});
+    const d=await r.json();if(d.error)throw new Error('Gemini: '+d.error.message);
+    return d.candidates[0].content.parts[0].text;
+  }
+  if(aiCfg.provider==='openai'){
+    const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:aiCfg.model,max_tokens:450,messages:[{role:'user',content:prompt}]})});
+    const d=await r.json();if(d.error)throw new Error('OpenAI: '+d.error.message);
+    return d.choices[0].message.content;
+  }
+  throw new Error('Unknown AI provider: '+aiCfg.provider);
 }
 
 // ── REPORTS ────────────────────────────────────────────────────────
@@ -2269,8 +2345,9 @@ async function syncAiKey(){
 // Decryption requires the Master Password entered at runtime.
 // Losing the password = must re-enter the API key.
 
-let _decryptedApiKey = null; // lives ONLY in memory, cleared on logout/unload
-window.addEventListener('beforeunload', () => { _decryptedApiKey = null; });
+let _decryptedApiKey  = null; // Claude / primary key — memory only
+let _decryptedGroqKey = null; // Groq fallback key — memory only
+window.addEventListener('beforeunload', () => { _decryptedApiKey = null; _decryptedGroqKey = null; });
 
 async function _deriveKey(password, salt) {
   const enc = new TextEncoder();
@@ -2306,7 +2383,15 @@ async function getDecryptedKey(masterPw) {
   catch(e) { return null; }
 }
 
-function lockApiKey() { _decryptedApiKey = null; }
+async function getDecryptedGroqKey(masterPw) {
+  if (_decryptedGroqKey) return _decryptedGroqKey;
+  const enc = loadState('aicfg_groq_enc', null);
+  if (!enc || !masterPw) return null;
+  try { _decryptedGroqKey = await _decryptKey(enc, masterPw); return _decryptedGroqKey; }
+  catch(e) { return null; }
+}
+
+function lockApiKey() { _decryptedApiKey = null; _decryptedGroqKey = null; }
 
 // ── AI SETTINGS MODAL ─────────────────────────────────────────────
 function openAISettings(){
@@ -2319,6 +2404,11 @@ function openAISettings(){
   document.getElementById('key-master-pw').value = '';
   document.getElementById('enc-status').textContent = hasEnc ? '🔒 Key is encrypted in storage' : '⚠️ No key saved yet';
   document.getElementById('enc-status').style.color = hasEnc ? 'var(--green)' : 'var(--amber)';
+  const hasGroqEnc = !!loadState('aicfg_groq_enc', null);
+  const fbInp = document.getElementById('groq-fallback-inp');
+  const fbSt  = document.getElementById('groq-fallback-status');
+  if(fbInp) fbInp.placeholder = hasGroqEnc ? '●●●●●●●●  (Groq key saved — enter new to replace)' : 'Paste Groq API key for fallback...';
+  if(fbSt)  { fbSt.textContent = hasGroqEnc ? (_decryptedGroqKey ? '🔓 Groq key unlocked — fallback active' : '🔒 Groq key encrypted — unlock to activate fallback') : 'Free key at console.groq.com → API Keys'; fbSt.style.color = hasGroqEnc ? 'var(--green)' : ''; }
   updateProviderUI();
   openModal('ai-modal');
 }
@@ -2331,6 +2421,8 @@ function updateProviderUI(){
   document.getElementById('api-key-section').style.display = p==='rule' ? 'none' : 'block';
   const msel = document.getElementById('model-sel');
   msel.innerHTML = info.models.map(m=>`<option value="${m}"${m===aiCfg.model?' selected':''}>${m}</option>`).join('');
+  const fbSec = document.getElementById('groq-fallback-section');
+  if(fbSec) fbSec.style.display = p==='anthropic' ? 'block' : 'none';
 }
 
 async function saveAISettings(){
@@ -2360,6 +2452,16 @@ async function saveAISettings(){
       document.getElementById('enc-status').style.color = 'var(--green)';
       showToast('✓ API key encrypted with AES-256');
     } catch(e) { showToast('Encryption failed: '+e.message,'#A32D2D'); return; }
+  }
+  // Save Groq fallback key if provided (Anthropic mode only)
+  const rawGroqKey = (document.getElementById('groq-fallback-inp')?.value||'').trim();
+  if(rawGroqKey && masterPw){
+    try{
+      saveState('aicfg_groq_enc', await _encryptKey(rawGroqKey, masterPw));
+      _decryptedGroqKey = rawGroqKey;
+      const fbSt = document.getElementById('groq-fallback-status');
+      if(fbSt){ fbSt.textContent='🔒 Groq fallback key encrypted & saved — auto-fallback active'; fbSt.style.color='var(--green)'; }
+    }catch(e){ showToast('Groq key encryption failed: '+e.message,'#A32D2D'); }
   }
   // Sync provider/model and encrypted key ciphertext to cloud (raw key never leaves device)
   if(window.__cloudReady && window.CloudSync && CloudSync.isAuthed){
@@ -2396,10 +2498,15 @@ async function unlockOnly(){
   const res = document.getElementById('ai-test-result');
   if(!masterPw){res.innerHTML='<span style="color:var(--red)">✗ Enter your Master Password first.</span>';return;}
   const k = await getDecryptedKey(masterPw);
+  // Also try to unlock Groq fallback key (same master password)
+  const gk = await getDecryptedGroqKey(masterPw);
   if(k){
-    res.innerHTML='<span style="color:var(--green)">✓ Key unlocked for this session. AI features are now active.</span>';
+    const groqNote = gk ? ' · Groq fallback active.' : '';
+    res.innerHTML=`<span style="color:var(--green)">✓ Key unlocked for this session. AI features are now active.${groqNote}</span>`;
     document.getElementById('enc-status').textContent='🔓 Key unlocked in memory';
     document.getElementById('enc-status').style.color='var(--gold-l)';
+    const fbSt = document.getElementById('groq-fallback-status');
+    if(fbSt && gk){ fbSt.textContent='🔓 Groq fallback key unlocked — auto-fallback active'; fbSt.style.color='var(--green)'; }
   } else {
     res.innerHTML='<span style="color:var(--red)">✗ Wrong password or no key saved.</span>';
   }
@@ -2450,9 +2557,9 @@ function openProfile(id){
   </div>
   <div>
     <div class="card">
-      <div class="card-title">AI insight <span class="badge b-gray" style="font-size:9px">${aiCfg.provider.toUpperCase()}</span></div>
-      <div class="ai-box" id="profile-insight">${c.aiInsight||'Not yet enriched.'}</div>
-      <button onclick="enrichProfileNow(${c.id})" style="margin-top:8px;font-size:11px"><i class="ti ti-refresh"></i> Regenerate insight</button>
+      <div class="card-title">AI analysis <span class="badge b-gray" style="font-size:9px">${aiCfg.provider.toUpperCase()}</span></div>
+      <div id="profile-insight">${_profileInsightHTML(c)}</div>
+      <button onclick="enrichProfileNow(${c.id})" style="margin-top:8px;font-size:11px"><i class="ti ti-refresh"></i> Regenerate analysis</button>
     </div>
   </div>
 </div>
@@ -2482,12 +2589,36 @@ function saveFromProfile(id){
   save();showToast('✓ Saved');openProfile(id);
 }
 
+function _profileInsightHTML(c){
+  if(!c.enriched||!c.aiInsight) return `<div class="ai-box">Not yet enriched.</div>`;
+  return `<div style="margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <div class="prog-bg" style="flex:1;height:10px"><div class="prog-f" style="width:${c.score}%;background:${scoreColor(c.score)}"></div></div>
+      <span style="font-size:18px;font-weight:900;color:${scoreColor(c.score)}">${c.score}</span>
+      <span class="badge ${c.eligibility==='High'?'b-green':c.eligibility==='Moderate'?'b-amber':'b-red'}" style="font-size:11px">${c.eligibility} eligibility</span>
+    </div>
+    <div class="ai-box" style="margin-bottom:12px;font-size:13px;line-height:1.75">${c.aiInsight}</div>
+    ${c.loanRange||c.priority?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${c.loanRange?`<div style="flex:1;min-width:130px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:10px 12px"><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.06em;margin-bottom:3px">RECOMMENDED LOAN</div><div style="font-size:14px;font-weight:800;color:var(--blue)">${c.loanRange}</div></div>`:''}
+      ${c.priority?`<div style="flex:1;min-width:100px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:10px 12px"><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.06em;margin-bottom:3px">CALL PRIORITY</div><div style="font-size:14px;font-weight:800;color:${c.priority==='High'?'var(--green)':c.priority==='Medium'?'#EF9F27':'var(--text2)'}">${c.priority}</div></div>`:''}
+    </div>`:''}
+    ${c.callerTip?`<div style="background:var(--navy);color:#fff;border-radius:var(--rs);padding:12px 14px"><div style="font-size:9px;font-weight:700;opacity:.65;letter-spacing:.08em;margin-bottom:5px">CALLER TIP</div><div style="font-size:13px;line-height:1.65">${c.callerTip}</div></div>`:''}
+  </div>`;
+}
+
 async function enrichProfileNow(id){
   const c=customers.find(x=>x.id===id);
   const el=document.getElementById('profile-insight');
-  if(el) el.textContent='Generating...';
-  try{c.aiInsight=_parseAIResult(c,await getAIInsight(c));c.enriched=true;save();if(el)el.textContent=c.aiInsight;}
-  catch(e){if(el)el.textContent='Error — check AI settings.';showToast('AI error','#A32D2D');}
+  if(el) el.innerHTML='<div class="ai-box" style="color:var(--text2)">Generating analysis...</div>';
+  try{
+    c.aiInsight=_parseAIResult(c,await getAIInsight(c));
+    c.enriched=true;
+    save();
+    if(el) el.innerHTML=_profileInsightHTML(c);
+  }catch(e){
+    if(el) el.innerHTML='<div class="ai-box" style="color:var(--red)">Error — check AI settings.</div>';
+    showToast('AI error','#A32D2D');
+  }
 }
 
 // ── ADMIN PIN CHANGE ───────────────────────────────────────────────
