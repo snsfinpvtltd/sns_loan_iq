@@ -27,6 +27,8 @@
 <meta name="theme-color"         content="#1B2A6B">
 <link rel="canonical"            href="https://loaniq.snsfinserv.in/">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.9.0/dist/tabler-icons.min.css">
 
 <!-- ────────────────────────────────────────────────────────────── -->
@@ -701,7 +703,8 @@ function renderAdmin(){
   <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
     <button class="primary" onclick="enrichAll()"><i class="ti ti-brain"></i> AI enrich all</button>
     <button onclick="openModal('assign-modal');renderAssignModal()"><i class="ti ti-users"></i> Assign contacts</button>
-    <button onclick="exportCSV()"><i class="ti ti-download"></i> Export CSV</button>
+    <button onclick="exportExcel()"><i class="ti ti-file-spreadsheet"></i> Export Excel</button>
+    <button onclick="exportPDF()"><i class="ti ti-file-type-pdf"></i> Export PDF</button>
   </div>
   <div id="upload-msg" style="font-size:12px;color:var(--text2);margin-top:8px"></div>
   <div style="margin-top:10px;padding:10px 12px;background:var(--blue-l);border-radius:var(--rs);font-size:11px;color:var(--navy);display:flex;align-items:flex-start;gap:8px">
@@ -2056,7 +2059,7 @@ ${currentRole==='admin'?`
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
     <div class="card-title" style="margin:0">Daily summary — ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>
-    <button onclick="exportCSV()"><i class="ti ti-download"></i> Export CSV</button>
+    <div style="display:flex;gap:6px"><button onclick="exportExcel()"><i class="ti ti-file-spreadsheet"></i> Excel</button><button onclick="exportPDF()"><i class="ti ti-file-type-pdf"></i> PDF</button></div>
   </div>
   <div style="overflow-x:auto">
   <table class="tbl">
@@ -2237,7 +2240,8 @@ function _json(obj) {
 <div class="card">
   <div class="card-title">Data management</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <button onclick="exportCSV()"><i class="ti ti-download"></i> Export all data CSV</button>
+    <button onclick="exportExcel()"><i class="ti ti-file-spreadsheet"></i> Export Excel</button>
+    <button onclick="exportPDF()"><i class="ti ti-file-type-pdf"></i> Export PDF</button>
     <button onclick="downloadExcelTemplate()"><i class="ti ti-table-export"></i> Download Excel template</button>
     <button class="danger" onclick="if(confirm('Reset all call statuses to Not Called?')){customers.forEach(c=>{c.status='Not Called';c.comments='';c.callHistory=[];});save();showToast('All statuses reset');}"><i class="ti ti-refresh"></i> Reset all statuses</button>
     <button class="danger" onclick="if(confirm('Clear all AI insights?')){customers.forEach(c=>{c.enriched=false;c.aiInsight='';});save();showToast('Insights cleared');}"><i class="ti ti-trash"></i> Clear AI insights</button>
@@ -2695,12 +2699,155 @@ function downloadExcelTemplate(){
   showToast('Excel template downloaded');
 }
 
-// ── EXPORT ─────────────────────────────────────────────────────────
-function exportCSV(){
-  const myList=currentRole==='admin'?customers:customers.filter(c=>c.callerId===currentCallerId);
-  const hdr=['Name','Company','Phone','Email','PIN','Area','Score','Eligibility','Loan Type','Caller','Status','Comments','Last Call'];
-  const rows=myList.map(c=>[c.name,c.company,c.phone,c.email,c.pin,c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city,c.score,c.eligibility,c.loan,callerName(c.callerId),c.status,c.comments,c.callHistory.length?c.callHistory.slice(-1)[0].date:'']);
-  const csv=[hdr,...rows].map(r=>r.map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+// -- EXPORT
+function _getFilteredList(){
+  if(currentRole==='admin'){
+    const fc=document.getElementById('f-caller')?.value||'All callers';
+    const fs=document.getElementById('f-status')?.value||'All statuses';
+    const fe=document.getElementById('f-elig')?.value||'All eligibility';
+    const fq=(document.getElementById('f-search')?.value||'').toLowerCase();
+    const fcity=document.getElementById('f-city')?.value||'All cities';
+    const fmin=parseInt(document.getElementById('f-score-min')?.value,10);
+    const fmax=parseInt(document.getElementById('f-score-max')?.value,10);
+    let list=customers;
+    if(fc!=='All callers') list=list.filter(c=>callerName(c.callerId)===fc);
+    if(fs!=='All statuses') list=list.filter(c=>c.status===fs);
+    if(fe!=='All eligibility') list=list.filter(c=>c.eligibility===fe);
+    if(fcity!=='All cities') list=list.filter(c=>(c.city||'')===fcity);
+    if(fq) list=list.filter(c=>c.name.toLowerCase().includes(fq)||c.company.toLowerCase().includes(fq));
+    if(!isNaN(fmin)&&fmin>0) list=list.filter(c=>c.score>=fmin);
+    if(!isNaN(fmax)&&fmax<100) list=list.filter(c=>c.score<=fmax);
+    return list;
+  }
+  return typeof _buildCallerBase==='function'?_buildCallerBase():customers.filter(c=>c.callerId===currentCallerId);
+}
+
+function _getFilterSummary(){
+  const parts=[];
+  if(currentRole==='admin'){
+    const fc=document.getElementById('f-caller')?.value; if(fc&&fc!=='All callers') parts.push('Caller: '+fc);
+    const fs=document.getElementById('f-status')?.value; if(fs&&fs!=='All statuses') parts.push('Status: '+fs);
+    const fe=document.getElementById('f-elig')?.value; if(fe&&fe!=='All eligibility') parts.push('Eligibility: '+fe);
+    const fcity=document.getElementById('f-city')?.value; if(fcity&&fcity!=='All cities') parts.push('City: '+fcity);
+    const fmin=document.getElementById('f-score-min')?.value; if(fmin) parts.push('Score>='+fmin);
+    const fmax=document.getElementById('f-score-max')?.value; if(fmax) parts.push('Score<='+fmax);
+    const fq=document.getElementById('f-search')?.value; if(fq) parts.push('Search:'+fq);
+  }else{
+    const csmin=document.getElementById('caller-score-min')?.value; if(csmin) parts.push('Score>='+csmin);
+    const csmax=document.getElementById('caller-score-max')?.value; if(csmax) parts.push('Score<='+csmax);
+    const ccity=document.getElementById('caller-city')?.value; if(ccity&&ccity!=='All cities') parts.push('City:'+ccity);
+  }
+  return parts.length?parts.join(' | '):'All records';
+}
+
+function exportExcel(){
+  const list=_getFilteredList();
+  if(!list.length){showToast('No records match current filters','#A32D2D');return;}
+  const dateStr=new Date().toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'});
+  const wb=XLSX.utils.book_new();
+  const info=[
+    ['SNS LoanIQ Agent - Customer Export'],['SNS Financial Services'],
+    ['Date',dateStr],['Records',list.length],['Filters',_getFilterSummary()],['Exported by',currentUser||'Admin'],[],
+  ];
+  const hdr=['#','Name','Company','Designation','Phone','Email','Area','PIN',
+    'Score','Eligibility','Loan Type','Loan Range','Priority',
+    'Status','Caller','Comments','AI Analysis','Caller Tip','Last Call'];
+  const rows=list.map((c,i)=>[
+    i+1,c.name,c.company,c.designation||'',c.phone,c.email,
+    c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city,c.pin!=='—'?c.pin:'',
+    c.score,c.eligibility,c.loan,c.loanRange||'',c.priority||'',c.status,
+    callerName(c.callerId),c.comments,c.aiInsight||'',c.callerTip||'',
+    c.callHistory.length?c.callHistory.slice(-1)[0].date:'',
+  ]);
+  const ws=XLSX.utils.aoa_to_sheet([...info,hdr,...rows]);
+  ws['!cols']=[{wch:4},{wch:22},{wch:28},{wch:18},{wch:14},{wch:28},{wch:16},{wch:8},
+    {wch:7},{wch:12},{wch:18},{wch:14},{wch:10},{wch:16},{wch:14},{wch:30},{wch:45},{wch:35},{wch:12}];
+  XLSX.utils.book_append_sheet(wb,'Customers',ws);
+  XLSX.writeFile(wb,'SNS_LoanIQ_'+today()+'.xlsx');
+  showToast('Excel exported - '+list.length+' records');
+}
+
+function exportPDF(){
+  const list=_getFilteredList();
+  if(!list.length){showToast('No records match current filters','#A32D2D');return;}
+  if(!window.jspdf){showToast('PDF library not loaded - check connection','#A32D2D');return;}
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  const dateStr=new Date().toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'});
+  const W=297;
+  doc.setFillColor(27,42,107); doc.rect(0,0,W,30,'F');
+  doc.setFillColor(74,186,114); doc.rect(0,30,W,6,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFont('helvetica','bold'); doc.setFontSize(16);
+  doc.text('SNS LoanIQ Agent',14,12);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text('SNS Financial Services - Customer Analysis Report',14,19);
+  doc.setFontSize(8); doc.text('Generated: '+dateStr,14,25);
+  doc.setFont('helvetica','bold'); doc.setFontSize(22);
+  doc.text(String(list.length),W-14,19,{align:'right'});
+  doc.setFont('helvetica','normal'); doc.setFontSize(8);
+  doc.text('records',W-14,25,{align:'right'});
+  doc.setFontSize(7.5);
+  doc.text('Filters: '+_getFilterSummary(),14,34.5);
+  doc.text('By: '+(currentUser||'Admin'),W-14,34.5,{align:'right'});
+  const high=list.filter(c=>c.score>=80).length;
+  const mid=list.filter(c=>c.score>=60&&c.score<80).length;
+  const low=list.filter(c=>c.score<60).length;
+  let px=14;
+  [['High: '+high,[29,158,117]],['Moderate: '+mid,[239,159,39]],['Low: '+low,[226,75,74]]].forEach(([lbl,col])=>{
+    doc.setFillColor(...col); doc.roundedRect(px,38,30,6,1,1,'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+    doc.text(lbl,px+15,42.5,{align:'center'}); px+=34;
+  });
+  doc.autoTable({
+    startY:47,
+    columns:[
+      {header:'#',dataKey:'idx'},{header:'Name',dataKey:'name'},{header:'Company',dataKey:'co'},
+      {header:'Phone',dataKey:'ph'},{header:'Area',dataKey:'area'},
+      {header:'Score',dataKey:'score'},{header:'Eligibility',dataKey:'elig'},
+      {header:'Loan Range',dataKey:'lr'},{header:'Priority',dataKey:'pri'},
+      {header:'Status',dataKey:'st'},{header:'Caller',dataKey:'caller'},
+      {header:'AI Analysis',dataKey:'ai'},{header:'Caller Tip',dataKey:'tip'},
+    ],
+    body:list.map((c,i)=>({
+      idx:i+1,name:c.name,co:c.company,ph:String(c.phone||''),
+      area:c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city,
+      score:c.score,elig:c.eligibility,lr:c.loanRange||c.loan,
+      pri:c.priority||'-',st:c.status,caller:callerName(c.callerId),
+      ai:c.aiInsight||'-',tip:c.callerTip||'-',
+    })),
+    theme:'grid',
+    headStyles:{fillColor:[27,42,107],textColor:[255,255,255],fontStyle:'bold',fontSize:7.5,cellPadding:2},
+    bodyStyles:{fontSize:7,cellPadding:2,textColor:[40,40,40]},
+    alternateRowStyles:{fillColor:[245,247,252]},
+    columnStyles:{
+      idx:{cellWidth:7,halign:'center'},name:{cellWidth:26},co:{cellWidth:32},
+      ph:{cellWidth:20},area:{cellWidth:18},score:{cellWidth:12,halign:'center'},
+      elig:{cellWidth:16},lr:{cellWidth:20},pri:{cellWidth:14},
+      st:{cellWidth:20},caller:{cellWidth:16},ai:{cellWidth:46},tip:{cellWidth:38},
+    },
+    didParseCell(data){
+      if(data.section!=='body') return;
+      if(data.column.dataKey==='score'){
+        const s=data.cell.raw;
+        data.cell.styles.fillColor=s>=80?[209,244,229]:s>=60?[254,243,205]:[253,218,218];
+        data.cell.styles.textColor=s>=80?[15,80,45]:s>=60?[92,60,0]:[120,20,20];
+        data.cell.styles.fontStyle='bold';
+      }
+      if(data.column.dataKey==='elig'){const e=data.cell.raw;data.cell.styles.textColor=e==='High'?[15,80,45]:e==='Moderate'?[92,60,0]:[120,20,20];data.cell.styles.fontStyle='bold';}
+      if(data.column.dataKey==='pri'){const p=data.cell.raw;data.cell.styles.textColor=p==='High'?[15,80,45]:p==='Medium'?[92,60,0]:[100,100,100];data.cell.styles.fontStyle='bold';}
+    },
+    didDrawPage(data){
+      const pages=doc.internal.getNumberOfPages();
+      doc.setFontSize(7);doc.setTextColor(150,150,150);doc.setFont('helvetica','normal');
+      doc.text('SNS Financial Services - Confidential',14,205);
+      doc.text('Page '+data.pageNumber+' of '+pages,W/2,205,{align:'center'});
+      doc.text(dateStr,W-14,205,{align:'right'});
+    },
+  });
+  doc.save('SNS_LoanIQ_'+today()+'.pdf');
+  showToast('PDF exported - '+list.length+' records');
+}"`).join(',')).join('\n');
   const a=document.createElement('a');
   a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
   a.download='loaniq_'+today()+'.csv';a.click();
