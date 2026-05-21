@@ -1950,7 +1950,7 @@ Sector: ${sector}
 Location: ${area}
 Loan product: ${c.loan}`;
   if(aiCfg.provider==='rule') return ruleInsight(c);
-  const key = _decryptedApiKey;
+  const key = _vault.getClaude();
   if(!key) throw new Error('API key locked — enter Master Password in AI Settings to unlock.');
 
   // ── Claude (Anthropic) — primary, with Groq auto-fallback ──
@@ -1961,7 +1961,7 @@ Loan product: ${c.loan}`;
       return d.content[0].text;
     }catch(claudeErr){
       // Auto-fallback to Groq if a fallback key is available
-      const groqKey=_decryptedGroqKey;
+      const groqKey=_vault.getGroq();
       if(!groqKey) throw new Error('Claude failed: '+claudeErr.message);
       console.warn('[AI] Claude failed, falling back to Groq:', claudeErr.message);
       const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+groqKey},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:450,messages:[{role:'user',content:prompt}]})});
@@ -2077,7 +2077,7 @@ function renderSettings(){
       <div>
         <div style="font-weight:700">${PROVIDER_INFO[aiCfg.provider]?.label||aiCfg.provider}</div>
         <div style="font-size:12px;color:var(--text2);margin-top:3px">Model: ${aiCfg.model}</div>
-        <div style="font-size:12px;color:var(--text2);margin-top:3px">Key: ${loadState('aicfg_enc',null)?'🔒 AES-256 Encrypted':(_decryptedApiKey?'🔓 Unlocked in memory':'⚠️ Not set')}</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:3px">Key: ${loadState('aicfg_enc',null)?(_vault.isUnlocked()?'🔓 Unlocked in memory':'🔒 AES-256 Encrypted'):'⚠️ Not set'}</div>
       </div>
       <div style="display:flex;gap:6px;flex-direction:column;align-items:flex-end">
         <button onclick="openAISettings()"><i class="ti ti-settings"></i> Change</button>
@@ -2345,9 +2345,45 @@ async function syncAiKey(){
 // Decryption requires the Master Password entered at runtime.
 // Losing the password = must re-enter the API key.
 
-let _decryptedApiKey  = null; // Claude / primary key — memory only
-let _decryptedGroqKey = null; // Groq fallback key — memory only
-window.addEventListener('beforeunload', () => { _decryptedApiKey = null; _decryptedGroqKey = null; });
+// ── KEY VAULT — keys live ONLY inside this closure, never as globals ──
+const _vault = (() => {
+  let _c = null, _g = null, _timer = null;
+  const AUTO_LOCK_MS = 45 * 60 * 1000; // 45 minutes
+
+  function _arm() {
+    if (_timer) clearTimeout(_timer);
+    _timer = setTimeout(() => {
+      _c = null; _g = null; _timer = null;
+      showToast('AI session expired — unlock again to use AI', '#854F0B');
+      // refresh settings panel if open
+      try { if(prevPage==='settings') renderSettings(); } catch(e){}
+    }, AUTO_LOCK_MS);
+  }
+
+  return {
+    setClaude(k)  { _c = k; _arm(); },
+    setGroq(k)    { _g = k; _arm(); },
+    getClaude()   { return _c; },
+    getGroq()     { return _g; },
+    hasClaude()   { return !!_c; },
+    hasGroq()     { return !!_g; },
+    isUnlocked()  { return !!_c; },
+    lock()        { _c = null; _g = null; if (_timer) clearTimeout(_timer); _timer = null; },
+    remainingMs() { return _timer ? AUTO_LOCK_MS : 0; },
+  };
+})();
+
+// Legacy shims so existing call-sites still work
+Object.defineProperty(window, '_decryptedApiKey',  { get(){ return null; }, set(){}, configurable:false });
+Object.defineProperty(window, '_decryptedGroqKey', { get(){ return null; }, set(){}, configurable:false });
+
+window.addEventListener('beforeunload', () => _vault.lock());
+// Lock when tab is hidden for more than 15 minutes
+let _hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { _hiddenAt = Date.now(); }
+  else if (_hiddenAt && Date.now() - _hiddenAt > 15 * 60 * 1000) { _vault.lock(); showToast('AI session locked — tab was hidden', '#854F0B'); }
+});
 
 async function _deriveKey(password, salt) {
   const enc = new TextEncoder();
@@ -2376,22 +2412,22 @@ async function _decryptKey(b64, password) {
 }
 
 async function getDecryptedKey(masterPw) {
-  if (_decryptedApiKey) return _decryptedApiKey;
+  if (_vault.hasClaude()) return _vault.getClaude();
   const enc = loadState('aicfg_enc', null);
   if (!enc || !masterPw) return null;
-  try { _decryptedApiKey = await _decryptKey(enc, masterPw); return _decryptedApiKey; }
+  try { const k = await _decryptKey(enc, masterPw); _vault.setClaude(k); return k; }
   catch(e) { return null; }
 }
 
 async function getDecryptedGroqKey(masterPw) {
-  if (_decryptedGroqKey) return _decryptedGroqKey;
+  if (_vault.hasGroq()) return _vault.getGroq();
   const enc = loadState('aicfg_groq_enc', null);
   if (!enc || !masterPw) return null;
-  try { _decryptedGroqKey = await _decryptKey(enc, masterPw); return _decryptedGroqKey; }
+  try { const k = await _decryptKey(enc, masterPw); _vault.setGroq(k); return k; }
   catch(e) { return null; }
 }
 
-function lockApiKey() { _decryptedApiKey = null; _decryptedGroqKey = null; }
+function lockApiKey() { _vault.lock(); }
 
 // ── AI SETTINGS MODAL ─────────────────────────────────────────────
 function openAISettings(){
@@ -2408,7 +2444,7 @@ function openAISettings(){
   const fbInp = document.getElementById('groq-fallback-inp');
   const fbSt  = document.getElementById('groq-fallback-status');
   if(fbInp) fbInp.placeholder = hasGroqEnc ? '●●●●●●●●  (Groq key saved — enter new to replace)' : 'Paste Groq API key for fallback...';
-  if(fbSt)  { fbSt.textContent = hasGroqEnc ? (_decryptedGroqKey ? '🔓 Groq key unlocked — fallback active' : '🔒 Groq key encrypted — unlock to activate fallback') : 'Free key at console.groq.com → API Keys'; fbSt.style.color = hasGroqEnc ? 'var(--green)' : ''; }
+  if(fbSt)  { fbSt.textContent = hasGroqEnc ? (_vault.hasGroq() ? '🔓 Groq key unlocked — fallback active' : '🔒 Groq key encrypted — unlock to activate fallback') : 'Free key at console.groq.com → API Keys'; fbSt.style.color = hasGroqEnc ? 'var(--green)' : ''; }
   updateProviderUI();
   openModal('ai-modal');
 }
@@ -2447,7 +2483,7 @@ async function saveAISettings(){
     }
     try {
       saveState('aicfg_enc', await _encryptKey(rawKey, masterPw));
-      _decryptedApiKey = rawKey;
+      _vault.setClaude(rawKey);
       document.getElementById('enc-status').textContent = '🔒 Key encrypted & saved';
       document.getElementById('enc-status').style.color = 'var(--green)';
       showToast('✓ API key encrypted with AES-256');
@@ -2458,7 +2494,7 @@ async function saveAISettings(){
   if(rawGroqKey && masterPw){
     try{
       saveState('aicfg_groq_enc', await _encryptKey(rawGroqKey, masterPw));
-      _decryptedGroqKey = rawGroqKey;
+      _vault.setGroq(rawGroqKey);
       const fbSt = document.getElementById('groq-fallback-status');
       if(fbSt){ fbSt.textContent='🔒 Groq fallback key encrypted & saved — auto-fallback active'; fbSt.style.color='var(--green)'; }
     }catch(e){ showToast('Groq key encryption failed: '+e.message,'#A32D2D'); }
@@ -2470,6 +2506,11 @@ async function saveAISettings(){
     if(enc) syncMap.aicfg_enc = enc;
     CloudSync.setSettings(syncMap).catch(e=>console.warn('[AI sync]',e.message));
   }
+  // Clear sensitive fields from DOM immediately
+  document.getElementById('api-key-inp').value = '';
+  document.getElementById('key-master-pw').value = '';
+  const gfInp = document.getElementById('groq-fallback-inp');
+  if(gfInp) gfInp.value = '';
   closeModal('ai-modal');
   showToast('AI settings saved — '+provider.toUpperCase());
   if(prevPage==='settings') renderSettings();
@@ -2502,11 +2543,12 @@ async function unlockOnly(){
   const gk = await getDecryptedGroqKey(masterPw);
   if(k){
     const groqNote = gk ? ' · Groq fallback active.' : '';
-    res.innerHTML=`<span style="color:var(--green)">✓ Key unlocked for this session. AI features are now active.${groqNote}</span>`;
-    document.getElementById('enc-status').textContent='🔓 Key unlocked in memory';
+    res.innerHTML=`<span style="color:var(--green)">✓ Key unlocked for this session (auto-locks in 45 min).${groqNote}</span>`;
+    document.getElementById('enc-status').textContent='🔓 Unlocked — auto-locks in 45 min';
     document.getElementById('enc-status').style.color='var(--gold-l)';
     const fbSt = document.getElementById('groq-fallback-status');
     if(fbSt && gk){ fbSt.textContent='🔓 Groq fallback key unlocked — auto-fallback active'; fbSt.style.color='var(--green)'; }
+    document.getElementById('key-master-pw').value=''; // clear password field immediately
   } else {
     res.innerHTML='<span style="color:var(--red)">✗ Wrong password or no key saved.</span>';
   }
