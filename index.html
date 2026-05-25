@@ -903,9 +903,15 @@ function trackCall(id,event){
   if(!c) return true;
   c.lastCalledAt=Date.now();
   c.callCount=(c.callCount||0)+1;
-  if(c.status==='Not Called'){
-    c.status='Follow Up';
-    c.callHistory.push({date:today(),ts:Date.now(),caller:currentUser,status:'Follow Up',comment:'Called via Call Now button'});
+  // Promote status for brand-new customers
+  if(c.status==='Not Called') c.status='Follow Up';
+  // Always push a placeholder so every call is logged immediately —
+  // endCallTimer() writes duration to it; saveCall() updates it in-place.
+  // Skip only if the last entry is already an unsaved placeholder for this user
+  // (prevents duplicates if Call Now is tapped twice without saving).
+  const _prev=c.callHistory[c.callHistory.length-1];
+  if(!_prev||!(_prev.comment==='Called via Call Now button'&&_prev.caller===currentUser&&_prev.duration==null)){
+    c.callHistory.push({date:today(),ts:Date.now(),caller:currentUser,status:c.status,comment:'Called via Call Now button'});
   }
   save();
   _startCallTimer(id);
