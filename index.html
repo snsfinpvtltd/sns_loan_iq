@@ -154,6 +154,26 @@ button:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
 .btn-call-now:hover{background:var(--green-d);transform:translateY(-1px);box-shadow:0 4px 14px rgba(27,107,58,0.38)}
 .call-notice{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--green);background:var(--green-l);border:1px solid var(--gold-border);border-radius:var(--rs);padding:6px 10px;margin-bottom:10px}
 
+/* ── LIVE CALL TIMER WIDGET ── */
+#call-timer-widget{position:fixed;bottom:24px;right:24px;z-index:9999;background:var(--navy-d);color:#fff;border-radius:16px;padding:16px 18px;box-shadow:0 8px 36px rgba(0,0,0,0.36),0 2px 8px rgba(0,0,0,0.18);min-width:220px;display:none;flex-direction:column;gap:10px;border:1.5px solid rgba(255,255,255,0.12)}
+#call-timer-widget.visible{display:flex;animation:timerPop .22s cubic-bezier(.34,1.56,.64,1)}
+@keyframes timerPop{from{transform:scale(.75) translateY(20px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}
+#timer-digits{font-size:36px;font-weight:900;letter-spacing:.04em;text-align:center;color:var(--gold-l);font-variant-numeric:tabular-nums;line-height:1}
+#timer-pulse{width:8px;height:8px;border-radius:50%;background:#4ABA72;display:inline-block;animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+#call-timer-widget .end-btn{background:var(--red-l);color:var(--red);border:none;border-radius:8px;font-size:13px;font-weight:700;padding:9px 14px;cursor:pointer;display:flex;align-items:center;gap:6px;justify-content:center;transition:background .15s}
+#call-timer-widget .end-btn:hover{background:#f8c0c0}
+
+/* ── CALLER DRILL-DOWN ── */
+tr.caller-perf-row{cursor:pointer}
+tr.caller-perf-row:hover>td{background:var(--blue-l)!important}
+tr.caller-drill-row>td{padding:0!important;background:var(--bg)!important}
+.drill-panel{border-top:2px solid var(--navy)}
+.expand-chev{display:inline-block;font-size:11px;color:var(--text2);transition:transform .2s;margin-right:4px}
+.expand-chev.open{transform:rotate(90deg)}
+.talk-bar-bg{background:#dde1e8;border-radius:99px;height:5px;width:70px;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:5px}
+.talk-bar-f{height:5px;border-radius:99px;background:var(--green)}
+
 /* ── MISC COMPONENTS ── */
 .avatar{border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0}
 .status-pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:99px}
@@ -392,6 +412,22 @@ button:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
   </div>
 </div>
 
+<!-- ── LIVE CALL TIMER WIDGET ── -->
+<div id="call-timer-widget">
+  <div style="display:flex;align-items:center;gap:7px">
+    <span id="timer-pulse"></span>
+    <div>
+      <div style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.48);letter-spacing:.1em">ON CALL WITH</div>
+      <div id="timer-cust-name" style="font-size:14px;font-weight:800;color:#fff;line-height:1.2"></div>
+      <div id="timer-cust-co" style="font-size:11px;color:rgba(255,255,255,0.45);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px"></div>
+    </div>
+  </div>
+  <div id="timer-digits">00:00</div>
+  <button class="end-btn" onclick="endCallTimer()">
+    <i class="ti ti-phone-off"></i> End Call &amp; Log
+  </button>
+</div>
+
 <!-- AI SETTINGS MODAL -->
 <div class="modal-overlay" id="ai-modal">
   <div class="modal-box" style="max-width:480px">
@@ -581,6 +617,9 @@ let customers=loadState('customers',[
 ]);
 
 let currentUser=null,currentRole=null,currentCallerId=null,prevPage='admin';
+
+// ── CALL TIMER STATE ────────────────────────────────────────────────
+let _callTimer={id:null,start:null,elapsed:0,interval:null,pendingDuration:null};
 
 function save(){saveState('customers',customers);saveState('callers',callers);}
 function initials(n){return n.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();}
@@ -840,15 +879,87 @@ function trackCall(id,event){
   c.callCount=(c.callCount||0)+1;
   if(c.status==='Not Called'){
     c.status='Follow Up';
-    c.callHistory.push({date:today(),caller:currentUser,status:'Follow Up',comment:'Called via Call Now button'});
+    c.callHistory.push({date:today(),ts:Date.now(),caller:currentUser,status:'Follow Up',comment:'Called via Call Now button'});
   }
   save();
+  _startCallTimer(id);
   setTimeout(()=>{
     adminFilter();
     if(typeof _refreshCallerStats==='function') _refreshCallerStats();
     if(typeof filterCallerCards==='function') filterCallerCards();
   },50);
   return true;
+}
+
+// ── LIVE CALL TIMER ────────────────────────────────────────────────
+function _fmtDuration(secs){
+  if(secs==null||secs===0) return '—';
+  if(secs<60) return secs+'s';
+  const m=Math.floor(secs/60),s=secs%60;
+  return s?m+'m '+s+'s':m+'m';
+}
+
+function _startCallTimer(id){
+  // Stop any running timer first
+  if(_callTimer.interval) clearInterval(_callTimer.interval);
+  const c=customers.find(x=>x.id===id);
+  _callTimer={id,start:Date.now(),elapsed:0,interval:null,pendingDuration:null};
+  const w=document.getElementById('call-timer-widget');
+  const dn=document.getElementById('timer-cust-name');
+  const dc=document.getElementById('timer-cust-co');
+  if(dn) dn.textContent=c?c.name:'';
+  if(dc) dc.textContent=c?c.company:'';
+  const td=document.getElementById('timer-digits');
+  if(td) td.textContent='00:00';
+  if(w) w.classList.add('visible');
+  _callTimer.interval=setInterval(()=>{
+    const secs=Math.floor((Date.now()-_callTimer.start)/1000);
+    _callTimer.elapsed=secs;
+    const m=String(Math.floor(secs/60)).padStart(2,'0');
+    const s=String(secs%60).padStart(2,'0');
+    const el=document.getElementById('timer-digits');
+    if(el) el.textContent=m+':'+s;
+  },1000);
+}
+
+function endCallTimer(){
+  if(_callTimer.interval){clearInterval(_callTimer.interval);_callTimer.interval=null;}
+
+  // Bug-fix 1: use wall-clock diff, not stale elapsed (setInterval throttles on mobile background)
+  const dur=_callTimer.start?Math.floor((Date.now()-_callTimer.start)/1000):0;
+  _callTimer.pendingDuration=dur;
+  _callTimer.durSavedToHistory=false;   // track whether we already wrote to history
+
+  // Hide the widget
+  const w=document.getElementById('call-timer-widget');
+  if(w) w.classList.remove('visible');
+
+  // Bug-fix 2: immediately persist duration to the placeholder entry + localStorage
+  // so the data survives navigation / page reload before the user clicks Save
+  if(_callTimer.id && dur>0){
+    const _ec=customers.find(x=>x.id===_callTimer.id);
+    if(_ec){
+      const _el=_ec.callHistory[_ec.callHistory.length-1];
+      if(_el && _el.comment==='Called via Call Now button' && _el.duration==null){
+        _el.duration=dur;
+        _ec.totalCallSecs=(_ec.totalCallSecs||0)+dur;
+        _callTimer.durSavedToHistory=true;
+        save();
+        // Bust drill-down cache so re-opening shows the new duration
+        const _ep=document.getElementById('drill-panel-'+_ec.callerId);
+        if(_ep) delete _ep.dataset.rendered;
+      }
+    }
+  }
+
+  // Update the banner inside the open customer card
+  const durInput=document.getElementById('dur-'+_callTimer.id);
+  if(durInput) durInput.value=dur;
+  const durDisp=document.getElementById('dur-disp-'+_callTimer.id);
+  if(durDisp){durDisp.textContent='⏱ '+_fmtDuration(dur);durDisp.style.display='flex';}
+
+  // Bug-fix 4: honest toast — duration is captured but outcome still needs saving
+  showToast('📞 '+(dur>0?_fmtDuration(dur)+' captured':'Call ended')+' — update status & tap Save');
 }
 function trackWa(id,event){
   if(event) event.stopPropagation();
@@ -858,6 +969,15 @@ function trackWa(id,event){
   c.waCount=(c.waCount||0)+1;
   save();
   setTimeout(()=>{adminFilter();if(typeof renderCaller==='function'&&currentRole==='caller')renderCaller();},50);
+}
+function fmtCallDateTime(entry){
+  if(entry&&entry.ts){
+    const d=new Date(entry.ts);
+    const date=d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
+    const time=d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+    return date+' · '+time;
+  }
+  return (entry&&entry.date)||'—';
 }
 function fmtUpload(ts){
   if(!ts) return '<span style="color:#bbb;font-size:10px">Seed data</span>';
@@ -1300,7 +1420,7 @@ async function importFromRowObjects(rows,msg){
     const name=o.name||o.first_name||o.customer_name||o.full_name||'Unknown';
     const phone=o.phone||o.mobile||o.phone_number||o.glusr_usr_ph_mobile||'';
     const pin=o.pin||o.pincode||o.zip||o.postal_code||'—';
-    return{id:Date.now()+i,name,company:o.company||o.company_name||o.business||'',designation:o.designation||o.role||o.title||'',email:o.email||o.email_id||o.email1||'',phone,pin,city:o.city||o.town||'',score,eligibility:score>=80?'High':score>=60?'Moderate':'Low',loan:score>=80?'Business / MSME Loan':'Personal Loan',callerId:cal?cal.id:'',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:'',uploadedAt,lastCalledAt:null,callCount:0,lastWaAt:null,waCount:0};
+    return{id:Date.now()+i,name,company:o.company||o.company_name||o.business||'',designation:o.designation||o.role||o.title||'',email:o.email||o.email_id||o.email1||'',phone,pin,city:o.city||o.town||'',score,eligibility:score>=80?'High':score>=60?'Moderate':'Low',loan:score>=80?'Business / MSME Loan':'Personal Loan',callerId:cal?cal.id:'',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:'',uploadedAt,lastCalledAt:null,callCount:0,lastWaAt:null,waCount:0,totalCallSecs:0};
   });
   if(!newC.length){msg.innerHTML='<span style="color:var(--red)">✗ No valid rows found. Check column headers.</span>';return;}
   msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Archiving old data → pushing to Google Sheet...</span>';
@@ -1826,6 +1946,12 @@ function callerCard(c){
     <textarea id="cm-${c.id}" rows="2" placeholder="Customer response, next steps, loan interest...">${c.comments}</textarea>
   </div>
 
+  <!-- DURATION CAPTURE (filled by timer, hidden) -->
+  <input type="hidden" id="dur-${c.id}" value="">
+  <div id="dur-disp-${c.id}" style="display:${_callTimer.id===c.id&&_callTimer.pendingDuration!=null?'flex':'none'};align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--green);background:var(--green-l);border:1px solid var(--gold-border);border-radius:var(--rs);padding:6px 10px;margin-bottom:10px">
+    <i class="ti ti-clock"></i> Call duration: <span id="dur-val-${c.id}">${_callTimer.id===c.id&&_callTimer.pendingDuration!=null?_fmtDuration(_callTimer.pendingDuration):''}</span> <span style="font-size:11px;color:var(--text2);font-weight:400">— will be saved with this entry</span>
+  </div>
+
   <!-- ACTIONS -->
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
     <button class="primary" onclick="saveCall(${c.id})"><i class="ti ti-device-floppy"></i> Save</button>
@@ -1838,9 +1964,10 @@ function callerCard(c){
   <!-- CALL HISTORY -->
   ${c.callHistory.length?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
     <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:6px;letter-spacing:.06em">CALL HISTORY</div>
-    ${c.callHistory.slice(-3).map(h=>`<div style="display:flex;gap:8px;font-size:11px;padding:4px 0;border-bottom:1px solid #f5f5f5;flex-wrap:wrap">
-      <span style="color:var(--text2);min-width:70px">${h.date}</span>
+    ${c.callHistory.slice(-3).map(h=>`<div style="display:flex;gap:8px;font-size:11px;padding:4px 0;border-bottom:1px solid #f5f5f5;flex-wrap:wrap;align-items:center">
+      <span style="color:var(--text2);min-width:110px">${fmtCallDateTime(h)}</span>
       <span style="font-weight:700;min-width:110px;color:${STATUS_COLOR[h.status]}">${h.status}</span>
+      ${h.duration?`<span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;background:var(--green-l);color:var(--green);border:1px solid var(--gold-border)"><i class="ti ti-clock" style="font-size:10px"></i>${_fmtDuration(h.duration)}</span>`:''}
       <span style="color:var(--text2)">${h.comment}</span>
     </div>`).join('')}
   </div>`:''}
@@ -1886,11 +2013,52 @@ function saveCall(id){
   const ns=document.getElementById('st-'+id).value;
   const comment=document.getElementById('cm-'+id).value.trim();
   c.status=ns;c.comments=comment;
-  c.callHistory.push({date:today(),caller:currentUser,status:ns,comment:comment||'Status: '+ns});
+  // Auto-stop the timer if it is still running for this customer
+  if(_callTimer.id===id&&_callTimer.interval){
+    endCallTimer();
+  }
+  // Capture duration: prefer pending timer result, else hidden input
+  let duration=null;
+  if(_callTimer.pendingDuration!=null&&_callTimer.id===id){
+    duration=_callTimer.pendingDuration;
+    _callTimer.pendingDuration=null;
+  } else {
+    const durInput=document.getElementById('dur-'+id);
+    if(durInput&&durInput.value!=='') duration=parseInt(durInput.value,10)||null;
+  }
+  // Update the auto-placeholder in-place, or push a new entry
+  const _last=c.callHistory[c.callHistory.length-1];
+  const _isPlaceholder=_last&&_last.comment==='Called via Call Now button'&&_last.caller===currentUser;
+  if(_isPlaceholder){
+    _last.status=ns;
+    _last.comment=comment||'Status: '+ns;
+    _last.ts=Date.now();
+    _last.date=today();
+    // Bug-fix 3: endCallTimer() may have already written duration + updated totalCallSecs.
+    // Only write + count if it hasn't been saved yet.
+    if(duration!=null && _last.duration==null){
+      _last.duration=duration;
+      c.totalCallSecs=(c.totalCallSecs||0)+duration;
+    } else if(_last.duration){
+      duration=_last.duration; // use the already-persisted value for the toast
+    }
+  } else {
+    const entry={date:today(),ts:Date.now(),caller:currentUser,status:ns,comment:comment||'Status: '+ns};
+    if(duration!=null){
+      entry.duration=duration;
+      // Only count if endCallTimer() didn't already add it (no placeholder path)
+      if(!_callTimer.durSavedToHistory) c.totalCallSecs=(c.totalCallSecs||0)+duration;
+    }
+    c.callHistory.push(entry);
+  }
+  _callTimer.durSavedToHistory=false; // reset flag
   save();
   _refreshCallerStats();
   filterCallerCards();
-  showToast('✓ Saved — '+ns);
+  // Bust the drill-down cache for this caller so re-opening shows the new entry
+  const calPanel=document.getElementById('drill-panel-'+c.callerId);
+  if(calPanel) delete calPanel.dataset.rendered;
+  showToast('✓ Saved — '+ns+(duration!=null?' · ⏱ '+_fmtDuration(duration):''));
 }
 
 async function enrichOne(id,btn){
@@ -1995,51 +2163,149 @@ Loan product: ${c.loan}`;
 
 // ── REPORTS ────────────────────────────────────────────────────────
 function renderReports(){
-  const myList=currentRole==='admin'?customers:customers.filter(c=>c.callerId===currentCallerId);
+  const callerOpts=currentRole==='admin'
+    ?`<select id="rf-caller" onchange="_applyReportFilter()" style="font-size:12px">
+        <option value="">All callers</option>
+        ${callers.filter(c=>c.active).map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}
+      </select>`:'';
+  const statusOpts=STATUSES.map(s=>`<option value="${s}">${s}</option>`).join('');
+  document.getElementById('page-reports').innerHTML=`
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:10px 14px">
+  <span style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.06em">FILTER</span>
+  ${callerOpts}
+  <select id="rf-called" onchange="_applyReportFilter()" style="font-size:12px">
+    <option value="all">All customers</option>
+    <option value="called">Called only</option>
+    <option value="notcalled">Not called only</option>
+  </select>
+  <select id="rf-status" onchange="_applyReportFilter()" style="font-size:12px">
+    <option value="">All statuses</option>
+    ${statusOpts}
+  </select>
+  <button onclick="_clearReportFilters()" style="font-size:11px;padding:5px 10px"><i class="ti ti-x"></i> Clear</button>
+  <span id="rf-badge" style="font-size:11px;color:var(--text2);margin-left:auto"></span>
+</div>
+<div id="report-charts"></div>`;
+  _applyReportFilter();
+}
+
+function _clearReportFilters(){
+  const g=id=>document.getElementById(id);
+  if(g('rf-caller')) g('rf-caller').value='';
+  if(g('rf-called')) g('rf-called').value='all';
+  if(g('rf-status')) g('rf-status').value='';
+  _applyReportFilter();
+}
+
+function _applyReportFilter(){
+  const base=currentRole==='admin'?customers:customers.filter(c=>c.callerId===currentCallerId);
+  const caller=document.getElementById('rf-caller')?.value||'';
+  const called=document.getElementById('rf-called')?.value||'all';
+  const status=document.getElementById('rf-status')?.value||'';
+  let list=base;
+  if(caller) list=list.filter(c=>c.callerId===caller);
+  if(called==='called') list=list.filter(c=>c.status!=='Not Called');
+  if(called==='notcalled') list=list.filter(c=>c.status==='Not Called');
+  if(status) list=list.filter(c=>c.status===status);
+  const badge=document.getElementById('rf-badge');
+  const active=[caller,called!=='all'?called:'',status].filter(Boolean).length;
+  if(badge) badge.textContent=active?`${active} filter${active>1?'s':''} active · ${list.length} record${list.length!==1?'s':''}`:list.length+' records';
+  _renderReportCharts(list);
+}
+
+function _renderReportCharts(myList){
+  const el=document.getElementById('report-charts');
+  if(!el) return;
   const total=myList.length;
   const statusCounts={};STATUSES.forEach(s=>statusCounts[s]=myList.filter(c=>c.status===s).length);
   const pinStats={};myList.forEach(c=>{const a=c.pin!=='—'?(PIN_MAP[c.pin]||c.city):'Unknown';pinStats[a]=(pinStats[a]||0)+1;});
   const high=myList.filter(c=>c.score>=80).length,mid=myList.filter(c=>c.score>=60&&c.score<80).length,low=myList.filter(c=>c.score<60).length;
-  const callerRows=currentRole==='admin'?callers.filter(c=>c.active).map(cal=>{
-    const list=customers.filter(c=>c.callerId===cal.id);
-    const called=list.filter(c=>c.status!=='Not Called').length;
-    const interested=list.filter(c=>c.status==='Interested').length;
-    const follow=list.filter(c=>c.status==='Follow Up'||c.status==='Callback Requested').length;
-    return{name:cal.name,total:list.length,called,interested,follow,pct:list.length?Math.round(called/list.length*100):0};
+  const called=myList.filter(c=>c.status!=='Not Called').length;
+  const callerFilter=document.getElementById('rf-caller')?.value||'';
+  const callerRows=currentRole==='admin'?callers.filter(c=>c.active&&(!callerFilter||c.id===callerFilter)).map(cal=>{
+    const cl=myList.filter(c=>c.callerId===cal.id);
+    const cc=cl.filter(c=>c.status!=='Not Called').length;
+    const interested=cl.filter(c=>c.status==='Interested').length;
+    const follow=cl.filter(c=>c.status==='Follow Up'||c.status==='Callback Requested').length;
+    const totalSecs=cl.reduce((s,cust)=>s+(cust.totalCallSecs||0),0);
+    const avgSecs=cc>0?Math.round(totalSecs/cc):0;
+    return{id:cal.id,name:cal.name,total:cl.length,called:cc,interested,follow,pct:cl.length?Math.round(cc/cl.length*100):0,totalSecs,avgSecs};
   }):[];
+  const maxTalkSecs=callerRows.length?Math.max(...callerRows.map(r=>r.totalSecs),1):1;
+  // Store for the standalone filter re-render
+  window._cpRows=callerRows;
+  window._cpMaxSecs=maxTalkSecs;
 
-  document.getElementById('page-reports').innerHTML=`
+  el.innerHTML=`
 <div class="g4">
   <div class="mc"><div class="mc-v">${total}</div><div class="mc-l">Total</div></div>
-  <div class="mc"><div class="mc-v">${myList.filter(c=>c.status!=='Not Called').length}</div><div class="mc-l">Called</div></div>
+  <div class="mc"><div class="mc-v">${called}</div><div class="mc-l">Called</div></div>
   <div class="mc"><div class="mc-v">${statusCounts['Interested']||0}</div><div class="mc-l">Interested</div></div>
-  <div class="mc"><div class="mc-v">${total?Math.round(myList.filter(c=>c.status!=='Not Called').length/total*100):0}%</div><div class="mc-l">Completion</div></div>
+  <div class="mc"><div class="mc-v">${total?Math.round(called/total*100):0}%</div><div class="mc-l">Completion</div></div>
 </div>
 
 <div class="g2">
   <div class="card">
     <div class="card-title">Status breakdown</div>
-    ${STATUSES.map(s=>`<div class="bar-row"><span style="min-width:135px;display:flex;align-items:center;gap:4px;color:var(--text2);font-size:12px"><span class="dot" style="background:${STATUS_COLOR[s]}"></span>${s}</span><div class="bar-bg"><div class="bar-f" style="width:${total?Math.round((statusCounts[s]||0)/total*100):0}%;background:${STATUS_COLOR[s]}"></div></div><span style="min-width:22px;text-align:right;font-weight:700;font-size:12px">${statusCounts[s]||0}</span></div>`).join('')}
+    ${total?STATUSES.map(s=>`<div class="bar-row"><span style="min-width:135px;display:flex;align-items:center;gap:4px;color:var(--text2);font-size:12px"><span class="dot" style="background:${STATUS_COLOR[s]}"></span>${s}</span><div class="bar-bg"><div class="bar-f" style="width:${Math.round((statusCounts[s]||0)/total*100)}%;background:${STATUS_COLOR[s]}"></div></div><span style="min-width:22px;text-align:right;font-weight:700;font-size:12px">${statusCounts[s]||0}</span></div>`).join(''):'<div style="color:var(--text2);font-size:12px">No records match the current filter.</div>'}
   </div>
   <div class="card">
     <div class="card-title">Loan eligibility report</div>
     <div class="bar-row"><span style="min-width:90px;font-size:12px;color:var(--text2)">High (80+)</span><div class="bar-bg"><div class="bar-f" style="width:${total?Math.round(high/total*100):0}%;background:#1D9E75"></div></div><span style="font-weight:700;font-size:12px;min-width:22px;text-align:right">${high}</span></div>
     <div class="bar-row"><span style="min-width:90px;font-size:12px;color:var(--text2)">Mid (60–79)</span><div class="bar-bg"><div class="bar-f" style="width:${total?Math.round(mid/total*100):0}%;background:#EF9F27"></div></div><span style="font-weight:700;font-size:12px;min-width:22px;text-align:right">${mid}</span></div>
     <div class="bar-row"><span style="min-width:90px;font-size:12px;color:var(--text2)">Low (&lt;60)</span><div class="bar-bg"><div class="bar-f" style="width:${total?Math.round(low/total*100):0}%;background:#E24B4A"></div></div><span style="font-weight:700;font-size:12px;min-width:22px;text-align:right">${low}</span></div>
-    <div style="margin-top:14px;border-top:1px solid #f0f0f0;padding-top:12px">
+    ${myList.length?`<div style="margin-top:14px;border-top:1px solid #f0f0f0;padding-top:12px">
       <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:8px;letter-spacing:.06em">TOP CANDIDATES</div>
       ${[...myList].sort((a,b)=>b.score-a.score).slice(0,3).map(c=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f5f5f5;cursor:pointer;font-size:12px" onclick="openProfile(${c.id})"><span style="font-weight:700">${c.name}</span><div style="display:flex;align-items:center;gap:5px"><span style="font-weight:800;color:${scoreColor(c.score)}">${c.score}</span><span class="badge b-green" style="font-size:9px">${c.loan.split('/')[0].trim()}</span></div></div>`).join('')}
-    </div>
+    </div>`:''}
   </div>
 </div>
 
-${currentRole==='admin'?`
-<div class="card">
-  <div class="card-title">Caller performance</div>
+${currentRole==='admin'&&callerRows.length?`
+<div class="card" style="padding-bottom:4px" id="caller-perf-card">
+  <div style="margin-bottom:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+      <div class="card-title" style="margin:0"><i class="ti ti-users" style="font-size:13px;margin-right:4px"></i>Caller performance</div>
+      <span style="font-size:11px;color:var(--text2)"><i class="ti ti-info-circle" style="font-size:11px"></i> Click any row to drill down</span>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px 12px;background:var(--bg);border-radius:var(--rs);border:1px solid var(--border)">
+      <span style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.06em;flex-shrink:0">FILTER</span>
+      <select id="cpf-sort" onchange="_renderCallerPerfTbody()" style="font-size:12px">
+        <option value="talktime">Sort: Talk Time ↓</option>
+        <option value="called">Sort: Calls Made ↓</option>
+        <option value="interested">Sort: Interested ↓</option>
+        <option value="progress">Sort: Progress ↓</option>
+        <option value="lowprogress">Sort: Needs Help ↑</option>
+        <option value="name">Sort: Name A→Z</option>
+      </select>
+      <select id="cpf-show" onchange="_renderCallerPerfTbody()" style="font-size:12px">
+        <option value="all">All callers</option>
+        <option value="hastalk">Has talk time</option>
+        <option value="notalk">No talk time yet</option>
+        <option value="active">Called ≥1 today</option>
+      </select>
+      <div style="display:flex;align-items:center;gap:5px">
+        <label style="font-size:11px;color:var(--text2);white-space:nowrap">Min calls:</label>
+        <input type="number" id="cpf-mincalls" oninput="_renderCallerPerfTbody()" placeholder="0" min="0" style="width:54px;font-size:12px;padding:5px 7px">
+      </div>
+      <div style="display:flex;align-items:center;gap:5px">
+        <label style="font-size:11px;color:var(--text2);white-space:nowrap">Min talk:</label>
+        <select id="cpf-mintalk" onchange="_renderCallerPerfTbody()" style="font-size:12px">
+          <option value="0">Any</option>
+          <option value="60">≥ 1 min</option>
+          <option value="300">≥ 5 min</option>
+          <option value="600">≥ 10 min</option>
+          <option value="1800">≥ 30 min</option>
+        </select>
+      </div>
+      <button onclick="_clearCpFilter()" style="font-size:11px;padding:5px 10px;flex-shrink:0"><i class="ti ti-x"></i> Clear</button>
+      <span id="cp-badge" style="font-size:11px;color:var(--text2);margin-left:auto"></span>
+    </div>
+  </div>
   <div style="overflow-x:auto">
   <table class="tbl">
-    <thead><tr><th>Caller</th><th>Assigned</th><th>Called</th><th>Interested</th><th>Follow-ups</th><th>Progress</th></tr></thead>
-    <tbody>${callerRows.map(r=>`<tr><td style="font-weight:700">${r.name}</td><td>${r.total}</td><td>${r.called}</td><td style="color:#27500A;font-weight:700">${r.interested}</td><td style="color:#185FA5">${r.follow}</td><td><div style="display:flex;align-items:center;gap:6px"><div class="bar-bg" style="width:80px"><div class="bar-f" style="width:${r.pct}%;background:#185FA5"></div></div><span style="font-size:11px;font-weight:600">${r.pct}%</span></div></td></tr>`).join('')}</tbody>
+    <thead><tr><th></th><th>Caller</th><th>Assigned</th><th>Called</th><th>Interested</th><th>Follow-ups</th><th>Total Talk Time</th><th>Avg / Call</th><th>Progress</th></tr></thead>
+    <tbody id="cp-tbody"></tbody>
   </table>
   </div>
 </div>`:''}
@@ -2047,7 +2313,7 @@ ${currentRole==='admin'?`
 <div class="g2">
   <div class="card">
     <div class="card-title">Area / PIN code report</div>
-    ${Object.entries(pinStats).sort((a,b)=>b[1]-a[1]).map(([area,count])=>`<div class="bar-row"><span style="min-width:130px;font-size:12px;color:var(--text2)">${area}</span><div class="bar-bg"><div class="bar-f" style="width:${total?Math.round(count/total*100):0}%;background:#534AB7"></div></div><span style="font-weight:700;font-size:12px;min-width:22px;text-align:right">${count}</span></div>`).join('')}
+    ${Object.entries(pinStats).length?Object.entries(pinStats).sort((a,b)=>b[1]-a[1]).map(([area,count])=>`<div class="bar-row"><span style="min-width:130px;font-size:12px;color:var(--text2)">${area}</span><div class="bar-bg"><div class="bar-f" style="width:${total?Math.round(count/total*100):0}%;background:#534AB7"></div></div><span style="font-weight:700;font-size:12px;min-width:22px;text-align:right">${count}</span></div>`).join(''):'<div style="color:var(--text2);font-size:12px">No records.</div>'}
   </div>
   <div class="card">
     <div class="card-title">Callbacks &amp; follow-ups</div>
@@ -2059,16 +2325,196 @@ ${currentRole==='admin'?`
 
 <div class="card">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-    <div class="card-title" style="margin:0">Daily summary — ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>
+    <div class="card-title" style="margin:0">Summary — ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>
     <div style="display:flex;gap:6px"><button onclick="exportExcel()"><i class="ti ti-file-spreadsheet"></i> Excel</button><button onclick="exportPDF()"><i class="ti ti-file-type-pdf"></i> PDF</button></div>
   </div>
   <div style="overflow-x:auto">
   <table class="tbl">
     <thead><tr><th>Customer</th><th>Company</th>${currentRole==='admin'?'<th>Caller</th>':''}<th>Score</th><th>Status</th><th>Comments</th><th>Last call</th></tr></thead>
-    <tbody>${myList.map(c=>`<tr onclick="openProfile(${c.id})"><td style="font-weight:700;font-size:12px">${c.name}</td><td style="font-size:11px;color:var(--text2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.company}</td>${currentRole==='admin'?`<td style="font-size:12px">${callerName(c.callerId)}</td>`:''}<td style="font-weight:800;color:${scoreColor(c.score)}">${c.score}</td><td><span class="status-pill" style="background:${STATUS_BG[c.status]};color:${STATUS_COLOR[c.status]}"><span class="dot" style="background:${STATUS_COLOR[c.status]}"></span>${c.status}</span></td><td style="font-size:11px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.comments||'—'}</td><td style="font-size:11px;color:var(--text2)">${c.callHistory.length?c.callHistory.slice(-1)[0].date:'—'}</td></tr>`).join('')}</tbody>
+    <tbody>${myList.length?myList.map(c=>`<tr onclick="openProfile(${c.id})"><td style="font-weight:700;font-size:12px">${c.name}</td><td style="font-size:11px;color:var(--text2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.company}</td>${currentRole==='admin'?`<td style="font-size:12px">${callerName(c.callerId)}</td>`:''}<td style="font-weight:800;color:${scoreColor(c.score)}">${c.score}</td><td><span class="status-pill" style="background:${STATUS_BG[c.status]};color:${STATUS_COLOR[c.status]}"><span class="dot" style="background:${STATUS_COLOR[c.status]}"></span>${c.status}</span></td><td style="font-size:11px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.comments||'—'}</td><td style="font-size:11px;color:var(--text2);white-space:nowrap">${c.callHistory.length?fmtCallDateTime(c.callHistory.slice(-1)[0]):'—'}</td></tr>`).join(''):'<tr><td colspan="7" style="text-align:center;color:var(--text2);font-size:12px;padding:16px">No records match the current filter.</td></tr>'}</tbody>
   </table>
   </div>
 </div>`;
+  // Populate caller performance tbody now that the DOM is ready
+  if(currentRole==='admin') _renderCallerPerfTbody();
+}
+
+// ── CALLER PERFORMANCE FILTER ─────────────────────────────────────
+function _renderCallerPerfTbody(){
+  const sort=document.getElementById('cpf-sort')?.value||'talktime';
+  const show=document.getElementById('cpf-show')?.value||'all';
+  const minCalls=parseInt(document.getElementById('cpf-mincalls')?.value,10)||0;
+  const minTalk=parseInt(document.getElementById('cpf-mintalk')?.value,10)||0;
+  let rows=[...(window._cpRows||[])];
+  const total=rows.length;
+
+  // ── filters ──
+  if(show==='hastalk')  rows=rows.filter(r=>r.totalSecs>0);
+  if(show==='notalk')   rows=rows.filter(r=>r.totalSecs===0);
+  if(show==='active')   rows=rows.filter(r=>r.called>0);
+  if(minCalls>0)        rows=rows.filter(r=>r.called>=minCalls);
+  if(minTalk>0)         rows=rows.filter(r=>r.totalSecs>=minTalk);
+
+  // ── sort ──
+  if(sort==='called')      rows.sort((a,b)=>b.called-a.called);
+  else if(sort==='interested') rows.sort((a,b)=>b.interested-a.interested);
+  else if(sort==='progress')   rows.sort((a,b)=>b.pct-a.pct);
+  else if(sort==='lowprogress')rows.sort((a,b)=>a.pct-b.pct);
+  else if(sort==='name')       rows.sort((a,b)=>a.name.localeCompare(b.name));
+  else                         rows.sort((a,b)=>b.totalSecs-a.totalSecs); // talktime
+
+  // ── badge ──
+  const badge=document.getElementById('cp-badge');
+  const filtered=rows.length<total;
+  if(badge){
+    if(filtered) badge.innerHTML=`<span style="color:var(--navy);font-weight:700">${rows.length}</span> of ${total} caller${total!==1?'s':''}`;
+    else badge.textContent=total+' caller'+(total!==1?'s':'');
+  }
+
+  const maxSecs=window._cpMaxSecs||1;
+  const tbody=document.getElementById('cp-tbody');
+  if(!tbody) return;
+
+  if(!rows.length){
+    tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--text2);font-size:12px;padding:20px">No callers match the current filter.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML=rows.map(r=>`
+    <tr class="caller-perf-row" onclick="_toggleCallerDrill('${r.id}')">
+      <td style="width:22px;padding-right:0"><span class="expand-chev" id="chev-${r.id}">&#9654;</span></td>
+      <td style="font-weight:700">${r.name}</td>
+      <td>${r.total}</td>
+      <td>${r.called}</td>
+      <td style="color:#27500A;font-weight:700">${r.interested}</td>
+      <td style="color:#185FA5">${r.follow}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="talk-bar-bg"><span class="talk-bar-f" style="width:${r.totalSecs?Math.round(r.totalSecs/maxSecs*100):0}%;display:block"></span></span>
+          <span style="font-weight:700;color:${r.totalSecs?'var(--green)':'#bbb'}">${r.totalSecs?_fmtDuration(r.totalSecs):'—'}</span>
+        </div>
+      </td>
+      <td style="color:var(--text2)">${r.avgSecs?_fmtDuration(r.avgSecs):'—'}</td>
+      <td><div style="display:flex;align-items:center;gap:6px"><div class="bar-bg" style="width:72px"><div class="bar-f" style="width:${r.pct}%;background:#185FA5"></div></div><span style="font-size:11px;font-weight:600">${r.pct}%</span></div></td>
+    </tr>
+    <tr class="caller-drill-row" id="drill-row-${r.id}" style="display:none">
+      <td colspan="9"><div class="drill-panel" id="drill-panel-${r.id}"></div></td>
+    </tr>`).join('');
+}
+
+function _clearCpFilter(){
+  const g=id=>document.getElementById(id);
+  if(g('cpf-sort'))    g('cpf-sort').value='talktime';
+  if(g('cpf-show'))    g('cpf-show').value='all';
+  if(g('cpf-mincalls'))g('cpf-mincalls').value='';
+  if(g('cpf-mintalk')) g('cpf-mintalk').value='0';
+  _renderCallerPerfTbody();
+}
+
+// ── CALLER DRILL-DOWN ─────────────────────────────────────────────
+function _toggleCallerDrill(calId){
+  const row=document.getElementById('drill-row-'+calId);
+  const chev=document.getElementById('chev-'+calId);
+  if(!row) return;
+  const isOpen=row.style.display!=='none';
+  if(isOpen){
+    row.style.display='none';
+    if(chev) chev.classList.remove('open');
+  } else {
+    row.style.display='table-row';
+    if(chev) chev.classList.add('open');
+    const panel=document.getElementById('drill-panel-'+calId);
+    if(panel&&!panel.dataset.rendered){
+      panel.innerHTML=_buildDrillContent(calId);
+      panel.dataset.rendered='1';
+    }
+  }
+}
+
+function _buildDrillContent(calId){
+  const cal=callers.find(x=>x.id===calId);
+  if(!cal) return '<div style="padding:14px;color:var(--text2)">Caller not found.</div>';
+  const myCusts=customers.filter(c=>c.callerId===calId);
+  const calledCusts=myCusts.filter(c=>c.status!=='Not Called');
+  const totalSecs=myCusts.reduce((s,c)=>s+(c.totalCallSecs||0),0);
+  const totalCalls=myCusts.reduce((s,c)=>s+c.callHistory.length,0);
+
+  // Sort: has duration first → then by totalCallSecs desc → then by callHistory length
+  const sorted=[...myCusts].sort((a,b)=>{
+    const ah=a.callHistory.some(h=>h.duration)?1:0;
+    const bh=b.callHistory.some(h=>h.duration)?1:0;
+    if(bh!==ah) return bh-ah;
+    const sd=(b.totalCallSecs||0)-(a.totalCallSecs||0);
+    if(sd) return sd;
+    return b.callHistory.length-a.callHistory.length;
+  });
+
+  let h='<div style="padding:14px 16px 10px">';
+
+  // ── Summary strip ──
+  h+='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;background:var(--navy);border-radius:var(--rs)">';
+  h+='<div style="font-size:11px;font-weight:800;color:#fff;letter-spacing:.06em">'+cal.name.toUpperCase()+'</div>';
+  h+='<div style="height:14px;width:1px;background:rgba(255,255,255,0.2)"></div>';
+  h+='<span style="font-size:11px;color:rgba(255,255,255,0.7)">'+myCusts.length+' assigned</span>';
+  h+='<span style="font-size:11px;color:#4ABA72;font-weight:700">'+calledCusts.length+' called</span>';
+  h+='<span style="font-size:11px;color:rgba(255,255,255,0.7)">'+totalCalls+' total call log'+(totalCalls!==1?'s':'')+'</span>';
+  if(totalSecs){
+    h+='<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:800;color:var(--gold-l)"><i class="ti ti-clock" style="font-size:12px"></i>'+_fmtDuration(totalSecs)+' total talk time</span>';
+    if(calledCusts.length){
+      const avg=Math.round(totalSecs/calledCusts.length);
+      h+='<span style="font-size:11px;color:rgba(255,255,255,0.6)">avg '+_fmtDuration(avg)+'/customer</span>';
+    }
+  } else {
+    h+='<span style="font-size:11px;color:rgba(255,255,255,0.4);font-style:italic">No timed calls yet — use the stopwatch when calling</span>';
+  }
+  h+='</div>';
+
+  // ── Per-customer blocks ──
+  if(sorted.length===0){
+    h+='<div style="font-size:12px;color:var(--text2);padding:6px 0">No customers assigned to this caller.</div>';
+  } else {
+    sorted.forEach(c=>{
+      const cSecs=c.totalCallSecs||0;
+      const [bg,fg]=ac(c.name);
+      const hasHist=c.callHistory.length>0;
+      h+='<div style="border:1px solid var(--border);border-radius:var(--rs);margin-bottom:8px;overflow:hidden">';
+      // Customer header — clickable → open profile
+      h+='<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--card);cursor:pointer" onclick="openProfile('+c.id+')">';
+      h+='<div class="avatar" style="width:28px;height:28px;font-size:10px;flex-shrink:0;background:'+bg+';color:'+fg+'">'+initials(c.name)+'</div>';
+      h+='<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700">'+c.name+'</div>';
+      h+='<div style="font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+c.company+'</div></div>';
+      h+='<div style="display:flex;gap:6px;align-items:center;flex-shrink:0;flex-wrap:wrap">';
+      h+='<span style="font-size:11px;font-weight:800;color:'+scoreColor(c.score)+'">'+c.score+'</span>';
+      h+='<span class="status-pill" style="background:'+STATUS_BG[c.status]+';color:'+STATUS_COLOR[c.status]+'"><span class="dot" style="background:'+STATUS_COLOR[c.status]+'"></span>'+c.status+'</span>';
+      if(cSecs) h+='<span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--green-l);color:var(--green);border:1px solid var(--gold-border)"><i class="ti ti-clock" style="font-size:10px"></i>'+_fmtDuration(cSecs)+'</span>';
+      h+='<span style="font-size:11px;color:var(--text2)">'+c.callHistory.length+' log'+(c.callHistory.length!==1?'s':'')+'</span>';
+      h+='</div></div>';
+
+      // Call history entries
+      if(hasHist){
+        h+='<div style="background:var(--bg);border-top:1px solid var(--border)">';
+        c.callHistory.slice().reverse().forEach(entry=>{
+          h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 12px 6px 22px;border-bottom:1px solid rgba(0,0,0,0.04);flex-wrap:wrap;font-size:11px">';
+          h+='<i class="ti ti-history" style="font-size:10px;color:var(--text2);flex-shrink:0"></i>';
+          h+='<span style="color:var(--text2);min-width:110px;flex-shrink:0">'+fmtCallDateTime(entry)+'</span>';
+          h+='<span style="font-weight:700;color:'+STATUS_COLOR[entry.status]+';min-width:108px;flex-shrink:0">'+entry.status+'</span>';
+          if(entry.duration){
+            h+='<span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:var(--green-l);color:var(--green);border:1px solid var(--gold-border);flex-shrink:0"><i class="ti ti-clock" style="font-size:10px"></i>'+_fmtDuration(entry.duration)+'</span>';
+          } else {
+            h+='<span style="font-size:10px;color:#ccc;padding:1px 7px;flex-shrink:0">no timer</span>';
+          }
+          h+='<span style="color:var(--text2);flex:1;min-width:120px">'+entry.comment+'</span>';
+          h+='</div>';
+        });
+        h+='</div>';
+      } else {
+        h+='<div style="padding:7px 12px 7px 22px;font-size:11px;color:#bbb;background:var(--bg);border-top:1px solid var(--border)">No call history recorded yet.</div>';
+      }
+      h+='</div>'; // end customer block
+    });
+  }
+  h+='</div>'; // end outer padding
+  return h;
 }
 
 // ── SETTINGS ───────────────────────────────────────────────────────
@@ -2614,7 +3060,7 @@ function openProfile(id){
 ${c.callHistory.length?`
 <div class="card">
   <div class="card-title">Full call history (${c.callHistory.length} entries)</div>
-  ${c.callHistory.map(h=>`<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #f5f5f5;font-size:12px;flex-wrap:wrap"><span style="color:var(--text2);min-width:80px">${h.date}</span><span style="color:var(--text2);min-width:70px">${h.caller}</span><span style="font-weight:700;color:${STATUS_COLOR[h.status]};min-width:120px">${h.status}</span><span>${h.comment}</span></div>`).join('')}
+  ${c.callHistory.map(h=>`<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #f5f5f5;font-size:12px;flex-wrap:wrap;align-items:center"><span style="color:var(--text2);min-width:130px;white-space:nowrap">${fmtCallDateTime(h)}</span><span style="color:var(--text2);min-width:70px">${h.caller}</span><span style="font-weight:700;color:${STATUS_COLOR[h.status]};min-width:120px">${h.status}</span>${h.duration?`<span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:var(--green-l);color:var(--green);border:1px solid var(--gold-border)"><i class="ti ti-clock" style="font-size:10px"></i>${_fmtDuration(h.duration)}</span>`:''}<span>${h.comment}</span></div>`).join('')}
 </div>`:''}`;
 }
 
@@ -2632,8 +3078,11 @@ function saveFromProfile(id){
   const ns=document.getElementById('pst-'+id).value;
   const comment=document.getElementById('pcm-'+id).value.trim();
   c.status=ns;c.comments=comment;
-  c.callHistory.push({date:today(),caller:currentUser,status:ns,comment:comment||'Status: '+ns});
-  save();showToast('✓ Saved');openProfile(id);
+  c.callHistory.push({date:today(),ts:Date.now(),caller:currentUser,status:ns,comment:comment||'Status: '+ns});
+  save();
+  const _pfp=document.getElementById('drill-panel-'+c.callerId);
+  if(_pfp) delete _pfp.dataset.rendered;
+  showToast('✓ Saved');openProfile(id);
 }
 
 function _profileInsightHTML(c){
