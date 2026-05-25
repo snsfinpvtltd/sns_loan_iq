@@ -409,6 +409,7 @@ tr.caller-drill-row>td{padding:0!important;background:var(--bg)!important}
     <div id="page-reports" class="page"></div>
     <div id="page-profile" class="page"></div>
     <div id="page-settings" class="page"></div>
+    <div id="page-backup" class="page"></div>
   </div>
 </div>
 
@@ -495,6 +496,17 @@ tr.caller-drill-row>td{padding:0!important;background:var(--bg)!important}
       <button onclick="closeModal('ai-modal')">Cancel</button>
     </div>
     <div id="ai-test-result" style="margin-top:10px;font-size:12px"></div>
+  </div>
+</div>
+
+<!-- UPLOAD BACKUP / CARRY-OVER MODAL -->
+<div class="modal-overlay" id="upload-backup-modal">
+  <div class="modal-box" style="max-width:560px">
+    <div class="modal-title">
+      <span><i class="ti ti-shield-check" style="color:var(--green)"></i> Carry over active customers?</span>
+      <button onclick="closeModal('upload-backup-modal')" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--text2)">&times;</button>
+    </div>
+    <div id="backup-modal-body"></div>
   </div>
 </div>
 
@@ -697,26 +709,27 @@ function verifyAdminPin(){
 function buildNav(){
   const el=document.getElementById('nav-area');
   if(currentRole==='admin'){
-    el.innerHTML=`<button class="nav-btn active" id="nb-admin" onclick="showPage('admin')"><i class="ti ti-shield-lock"></i>Admin</button><button class="nav-btn" id="nb-caller" onclick="showPage('caller')"><i class="ti ti-phone"></i>Caller view</button><button class="nav-btn" id="nb-reports" onclick="showPage('reports')"><i class="ti ti-chart-bar"></i>Reports</button><button class="nav-btn" id="nb-settings" onclick="showPage('settings')"><i class="ti ti-settings"></i>Settings</button>`;
+    el.innerHTML=`<button class="nav-btn active" id="nb-admin" onclick="showPage('admin')"><i class="ti ti-shield-lock"></i>Admin</button><button class="nav-btn" id="nb-caller" onclick="showPage('caller')"><i class="ti ti-phone"></i>Caller view</button><button class="nav-btn" id="nb-reports" onclick="showPage('reports')"><i class="ti ti-chart-bar"></i>Reports</button><button class="nav-btn" id="nb-backup" onclick="showPage('backup')"><i class="ti ti-archive"></i>Backup</button><button class="nav-btn" id="nb-settings" onclick="showPage('settings')"><i class="ti ti-settings"></i>Settings</button>`;
   } else {
     el.innerHTML=`<button class="nav-btn active" id="nb-caller" onclick="showPage('caller')"><i class="ti ti-phone"></i>My calls</button><button class="nav-btn" id="nb-reports" onclick="showPage('reports')"><i class="ti ti-chart-bar"></i>My report</button>`;
   }
 }
 
 function showPage(p){
-  // ── ACCESS CONTROL: callers cannot access admin or settings ──
-  if(currentRole!=='admin' && (p==='admin'||p==='settings')){
+  // ── ACCESS CONTROL: callers cannot access admin, settings or backup ──
+  if(currentRole!=='admin' && (p==='admin'||p==='settings'||p==='backup')){
     openModal('access-denied-modal');
     return;
   }
-  ['admin','caller','reports','profile','settings'].forEach(x=>{document.getElementById('page-'+x).className='page';});
+  ['admin','caller','reports','profile','settings','backup'].forEach(x=>{document.getElementById('page-'+x).className='page';});
   document.getElementById('page-'+p).className='page active';
-  ['admin','caller','reports','settings'].forEach(x=>{const b=document.getElementById('nb-'+x);if(b)b.className='nav-btn'+(x===p?' active':'');});
+  ['admin','caller','reports','backup','settings'].forEach(x=>{const b=document.getElementById('nb-'+x);if(b)b.className='nav-btn'+(x===p?' active':'');});
   if(p!=='profile') prevPage=p;
   if(p==='admin') renderAdmin();
   else if(p==='caller') renderCaller();
   else if(p==='reports') renderReports();
   else if(p==='settings') renderSettings();
+  else if(p==='backup') renderBackup();
 }
 
 // ── ADMIN ──────────────────────────────────────────────────────────
@@ -839,12 +852,25 @@ function handleDrop(event){
 function handleUpload(input){
   const file=input.files[0];
   if(!file) return;
-  processFile(file);
+  processFile(file,'upload-msg');
   input.value=''; // reset so same file can be re-uploaded
 }
+function handleUploadBk(input){
+  const file=input.files[0];
+  if(!file) return;
+  processFile(file,'bk-upload-msg');
+  input.value='';
+}
+function handleDropBk(event){
+  event.preventDefault();
+  const dz=document.getElementById('bk-drop-zone');
+  if(dz) dz.style.borderColor='';
+  const file=event.dataTransfer.files[0];
+  if(file) processFile(file,'bk-upload-msg');
+}
 
-function processFile(file){
-  const msg=document.getElementById('upload-msg');
+function processFile(file, msgId){
+  const msg=document.getElementById(msgId||'upload-msg');
   const name=file.name.toLowerCase();
   if(name.endsWith('.csv')){
     msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Reading CSV...</span>';
@@ -1223,11 +1249,15 @@ async function _parseWebhookResp(resp){
   return {ok:false,error:'Unexpected response',raw:text};
 }
 function renderArchivedBatches(){
-  const wrap=document.getElementById('archive-list');
-  const cnt=document.getElementById('archive-count');
+  _renderArchivedBatchesInto('archive-list','archive-count');
+  _renderArchivedBatchesInto('archive-list-bk','archive-count-bk');
+}
+function _renderArchivedBatchesInto(listId,cntId){
+  const wrap=document.getElementById(listId);
+  const cnt=document.getElementById(cntId);
   if(!wrap) return;
   const batches=loadState('archived_batches',[]);
-  cnt.textContent=batches.length?`${batches.length} batch${batches.length>1?'es':''} on file`:'';
+  if(cnt) cnt.textContent=batches.length?`${batches.length} batch${batches.length>1?'es':''} on file`:'';
   if(!batches.length){
     wrap.innerHTML=`<div style="text-align:center;padding:18px 10px;color:var(--text2);font-size:12px;border:1px dashed var(--border);border-radius:var(--rs)"><i class="ti ti-database-off" style="font-size:22px;display:block;margin-bottom:6px;color:#bbb"></i>No archived batches yet. Old data is auto-archived here next time you upload.</div>`;
     return;
@@ -1423,16 +1453,7 @@ async function importFromRowObjects(rows,msg){
     return{id:Date.now()+i,name,company:o.company||o.company_name||o.business||'',designation:o.designation||o.role||o.title||'',email:o.email||o.email_id||o.email1||'',phone,pin,city:o.city||o.town||'',score,eligibility:score>=80?'High':score>=60?'Moderate':'Low',loan:score>=80?'Business / MSME Loan':'Personal Loan',callerId:cal?cal.id:'',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:'',uploadedAt,lastCalledAt:null,callCount:0,lastWaAt:null,waCount:0,totalCallSecs:0};
   });
   if(!newC.length){msg.innerHTML='<span style="color:var(--red)">✗ No valid rows found. Check column headers.</span>';return;}
-  msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Archiving old data → pushing to Google Sheet...</span>';
-  const batch=await archiveOldData(customers);
-  customers=newC;save();
-  if(window.__cloudReady&&window.CloudSync&&CloudSync.isAuthed){
-    setSyncStatus('saving');
-    CloudSync.replaceCustomers(newC).then(()=>setSyncStatus('saved')).catch(e=>setSyncStatus('error',e.message));
-  }
-  const archMsg=_archMsgFor(batch);
-  msg.innerHTML=`<span style="color:#27500A">✓ ${newC.length} customers imported &amp; auto-assigned from Excel.</span>${archMsg}`;
-  adminFilter();renderArchivedBatches();
+  _checkAndShowBackupModal(newC,msg);
 }
 
 async function importFromCSVText(text,msg){
@@ -1452,16 +1473,7 @@ async function importFromCSVText(text,msg){
     return{id:Date.now()+i,name,company:o.company||o.company_name||'',designation:o.designation||'',email:o.email||o.email1||'',phone,pin,city:o.city||'',score,eligibility:score>=80?'High':score>=60?'Moderate':'Low',loan:score>=80?'Business / MSME Loan':'Personal Loan',callerId:cal?cal.id:'',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:'',uploadedAt,lastCalledAt:null,callCount:0,lastWaAt:null,waCount:0};
   });
   if(!newC.length){msg.innerHTML='<span style="color:var(--red)">✗ No valid rows found.</span>';return;}
-  msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Archiving old data → pushing to Google Sheet...</span>';
-  const batch=await archiveOldData(customers);
-  customers=newC;save();
-  if(window.__cloudReady&&window.CloudSync&&CloudSync.isAuthed){
-    setSyncStatus('saving');
-    CloudSync.replaceCustomers(newC).then(()=>setSyncStatus('saved')).catch(e=>setSyncStatus('error',e.message));
-  }
-  const archMsg=_archMsgFor(batch);
-  msg.innerHTML=`<span style="color:#27500A">✓ ${newC.length} customers imported &amp; auto-assigned from CSV.</span>${archMsg}`;
-  adminFilter();renderArchivedBatches();
+  _checkAndShowBackupModal(newC,msg);
 }
 
 function _archMsgFor(batch){
@@ -1470,6 +1482,130 @@ function _archMsgFor(batch){
   const hasWebhook=!!loadState('gsheet_webhook_enc',null);
   if(hasWebhook) return ` · <span class="badge b-amber" style="font-size:9px"><i class="ti ti-alert-triangle" style="font-size:9px"></i> ${batch.count} archived locally — Sheet push failed (check Settings → Test push)</span>`;
   return ` · <span class="badge b-amber" style="font-size:9px"><i class="ti ti-lock" style="font-size:8px"></i> ${batch.count} archived locally (AES-256) — configure webhook in Settings to auto-push</span>`;
+}
+
+// ── UPLOAD BACKUP / CARRY-OVER ─────────────────────────────────────
+let _pendingImport=null; // {newC, msg}
+
+function _checkAndShowBackupModal(newC,msg){
+  // Build counts for every non-"Not Called" status that has at least one customer
+  const statusCounts={};
+  STATUSES.filter(s=>s!=='Not Called').forEach(s=>{
+    const n=customers.filter(c=>c.status===s).length;
+    if(n>0) statusCounts[s]=n;
+  });
+  if(!Object.keys(statusCounts).length){
+    // Nothing worth keeping — go straight to import
+    _finalizeImport(newC,[],msg);
+    return;
+  }
+  _pendingImport={newC,msg};
+  _renderBackupModal(statusCounts,newC.length);
+  openModal('upload-backup-modal');
+}
+
+function _renderBackupModal(statusCounts,newCount){
+  const DEFAULT_KEEP=['Interested','Callback Requested'];
+  const totalActive=Object.values(statusCounts).reduce((s,n)=>s+n,0);
+  let rows='';
+  Object.entries(statusCounts).forEach(([s,n])=>{
+    const chk=DEFAULT_KEEP.includes(s)?'checked':'';
+    const sid='bk-'+s.replace(/\s+/g,'_');
+    rows+=`<label style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--rs);border:1px solid var(--border);background:var(--card);cursor:pointer;margin-bottom:6px;transition:background .12s" onmouseover="this.style.background='var(--blue-l)'" onmouseout="this.style.background='var(--card)'">
+      <input type="checkbox" id="${sid}" ${chk} onchange="_updateBackupCount(${newCount})" style="width:16px;height:16px;cursor:pointer;accent-color:var(--navy)">
+      <span class="status-pill" style="background:${STATUS_BG[s]};color:${STATUS_COLOR[s]}"><span class="dot" style="background:${STATUS_COLOR[s]}"></span>${s}</span>
+      <span style="font-weight:800;font-size:14px;color:${STATUS_COLOR[s]}">${n}</span>
+      <span style="font-size:12px;color:var(--text2)">customer${n>1?'s':''}</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--text2)">${n} will be kept</span>
+    </label>`;
+  });
+
+  document.getElementById('backup-modal-body').innerHTML=`
+    <div style="padding:4px 0 14px;font-size:13px;color:var(--text2);line-height:1.6">
+      Your current batch has <strong style="color:var(--text)">${customers.length} customers</strong> —
+      <strong style="color:var(--navy)">${totalActive} are active</strong> (not "Not Called").<br>
+      Select which statuses to carry over into the new <strong>${newCount}-record</strong> import.
+      Carried-over customers are deduplicated by phone number.
+    </div>
+    <div style="margin-bottom:14px">${rows}</div>
+    <div id="bk-summary" style="font-size:12px;font-weight:700;color:var(--navy);background:var(--blue-l);border:1px solid var(--border);border-radius:var(--rs);padding:8px 12px;margin-bottom:14px;display:flex;align-items:center;gap:6px">
+      <i class="ti ti-info-circle"></i> <span id="bk-summary-text"></span>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="primary" onclick="_doFinalizeImport()" id="bk-confirm-btn"><i class="ti ti-file-import"></i> Keep selected &amp; Import</button>
+      <button onclick="_doFinalizeImportFresh()" style="background:var(--red-l);color:var(--red);border-color:#f0c0c0"><i class="ti ti-refresh-alert"></i> Import fresh (discard all)</button>
+      <button onclick="closeModal('upload-backup-modal')"><i class="ti ti-x"></i> Cancel</button>
+    </div>`;
+  _updateBackupCount(newCount);
+}
+
+function _updateBackupCount(newCount){
+  let keepCount=0;
+  document.querySelectorAll('[id^="bk-"]').forEach(cb=>{
+    if(cb.type==='checkbox'&&cb.checked){
+      const s=cb.id.replace('bk-','').replace(/_/g,' ');
+      keepCount+=customers.filter(c=>c.status===s).length;
+    }
+  });
+  const el=document.getElementById('bk-summary-text');
+  const btn=document.getElementById('bk-confirm-btn');
+  const nc=newCount||(_pendingImport?_pendingImport.newC.length:0);
+  if(keepCount>0){
+    // Estimate deduplicated new count
+    const keptPhones=new Set();
+    document.querySelectorAll('[id^="bk-"]').forEach(cb=>{
+      if(cb.type==='checkbox'&&cb.checked){
+        const s=cb.id.replace('bk-','').replace(/_/g,' ');
+        customers.filter(c=>c.status===s).forEach(c=>{if(c.phone)keptPhones.add(c.phone);});
+      }
+    });
+    const deduped=_pendingImport?_pendingImport.newC.filter(c=>!c.phone||!keptPhones.has(c.phone)).length:nc;
+    if(el) el.textContent=keepCount+' carried over + '+deduped+' new = '+( keepCount+deduped)+' total after import';
+    if(btn) btn.disabled=false;
+  } else {
+    if(el) el.textContent='Nothing selected — import will replace all '+nc+' new records';
+    if(btn) btn.disabled=false;
+  }
+}
+
+function _doFinalizeImport(){
+  const keepStatuses=[];
+  document.querySelectorAll('[id^="bk-"]').forEach(cb=>{
+    if(cb.type==='checkbox'&&cb.checked) keepStatuses.push(cb.id.replace('bk-','').replace(/_/g,' '));
+  });
+  closeModal('upload-backup-modal');
+  if(_pendingImport) _finalizeImport(_pendingImport.newC,keepStatuses,_pendingImport.msg);
+  _pendingImport=null;
+}
+
+function _doFinalizeImportFresh(){
+  closeModal('upload-backup-modal');
+  if(_pendingImport) _finalizeImport(_pendingImport.newC,[],_pendingImport.msg);
+  _pendingImport=null;
+}
+
+async function _finalizeImport(newC,keepStatuses,msg){
+  // Customers to carry over
+  const kept=keepStatuses.length?customers.filter(c=>keepStatuses.includes(c.status)):[];
+  // Remove duplicates from new list (match by phone number)
+  const keptPhones=new Set(kept.map(c=>c.phone).filter(Boolean));
+  const dedupedNew=newC.filter(c=>!c.phone||!keptPhones.has(c.phone));
+
+  msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Archiving old data → pushing to Google Sheet...</span>';
+  const batch=await archiveOldData(customers);
+
+  const merged=[...kept,...dedupedNew];
+  customers=merged;save();
+
+  if(window.__cloudReady&&window.CloudSync&&CloudSync.isAuthed){
+    setSyncStatus('saving');
+    CloudSync.replaceCustomers(merged).then(()=>setSyncStatus('saved')).catch(e=>setSyncStatus('error',e.message));
+  }
+
+  const archMsg=_archMsgFor(batch);
+  const keptBadge=kept.length?` · <span class="badge b-green" style="font-size:9px"><i class="ti ti-user-check" style="font-size:9px"></i> ${kept.length} carried over</span>`:'';
+  msg.innerHTML=`<span style="color:#27500A">✓ ${dedupedNew.length} new + ${kept.length} carried over = ${merged.length} total customers.</span>${keptBadge}${archMsg}`;
+  adminFilter();renderArchivedBatches();
 }
 
 async function enrichAll(){
@@ -2517,6 +2653,231 @@ function _buildDrillContent(calId){
   return h;
 }
 
+// ── BACKUP ─────────────────────────────────────────────────────────
+// Statuses auto-checked by default (typically "done / junk" outcomes)
+const _BK_DEFAULT_SEL=['Not Reachable','Wrong Number','Not Interested'];
+
+function renderBackup(){
+  const statusCounts={};
+  STATUSES.filter(s=>s!=='Not Called').forEach(s=>{
+    const n=customers.filter(c=>c.status===s).length;
+    if(n>0) statusCounts[s]=n;
+  });
+  const totalActive=Object.values(statusCounts).reduce((a,b)=>a+b,0);
+  const notCalled=customers.filter(c=>c.status==='Not Called').length;
+  const totalCalls=customers.reduce((a,c)=>(a+(c.callHistory?c.callHistory.length:0)),0);
+  const totalTalkSecs=customers.reduce((a,c)=>(a+(c.totalCallSecs||0)),0);
+  const hasActive=Object.keys(statusCounts).length>0;
+
+  let statusRows='';
+  if(hasActive){
+    Object.entries(statusCounts).forEach(([s,n])=>{
+      const sid='bk-sel-'+s.replace(/\s+/g,'_');
+      const chk=_BK_DEFAULT_SEL.includes(s)?'checked':'';
+      statusRows+=`
+      <label id="bk-row-${sid}" style="display:flex;align-items:center;gap:10px;padding:10px 13px;border:1px solid var(--border);border-radius:var(--rs);margin-bottom:6px;cursor:pointer;transition:background .12s;${chk?'background:var(--amber-l);border-color:#e8d0a0;':'background:var(--card);'}"
+        onmouseover="this.style.background=document.getElementById('${sid}').checked?'#fcefd4':'var(--blue-l)'"
+        onmouseout="this.style.background=document.getElementById('${sid}').checked?'var(--amber-l)':'var(--card)'">
+        <input type="checkbox" id="${sid}" ${chk} onchange="_onBkSelChange('${sid}')" style="width:17px;height:17px;cursor:pointer;accent-color:var(--amber);flex-shrink:0">
+        <span class="status-pill" style="background:${STATUS_BG[s]};color:${STATUS_COLOR[s]}"><span class="dot" style="background:${STATUS_COLOR[s]}"></span>${s}</span>
+        <span style="font-weight:800;font-size:15px;color:${STATUS_COLOR[s]}">${n}</span>
+        <span style="font-size:12px;color:var(--text2)">customer${n>1?'s':''}</span>
+        <span style="margin-left:auto;font-size:11px;font-weight:600;color:var(--text2)">${chk?'<span style="color:var(--amber)">✓ selected</span>':'<span style="color:#bbb">not selected</span>'}</span>
+      </label>`;
+    });
+  } else {
+    statusRows=`<div style="font-size:12px;color:var(--text2);padding:8px 0">All customers are <em>Not Called</em> — nothing to selectively archive.</div>`;
+  }
+
+  document.getElementById('page-backup').innerHTML=`
+<div style="max-width:900px">
+
+<!-- Page header -->
+<div style="margin-bottom:20px">
+  <div style="font-size:20px;font-weight:800;color:var(--navy);margin-bottom:4px;display:flex;align-items:center;gap:8px"><i class="ti ti-archive" style="color:var(--green)"></i> Backup &amp; Import</div>
+  <div style="font-size:13px;color:var(--text2)">Select statuses to archive, manage encrypted backups, and import a new customer file</div>
+</div>
+
+<!-- Current batch + selective archive -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title" style="margin-bottom:14px"><i class="ti ti-users" style="font-size:12px"></i> Current batch</div>
+
+  <!-- Stat tiles -->
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+    <div style="flex:1;min-width:90px;padding:14px 16px;background:var(--blue-l);border-radius:var(--rs);text-align:center">
+      <div style="font-size:26px;font-weight:900;color:var(--navy)">${customers.length}</div>
+      <div style="font-size:11px;color:var(--text2);font-weight:600;margin-top:2px">Total</div>
+    </div>
+    <div style="flex:1;min-width:90px;padding:14px 16px;background:var(--green-l);border-radius:var(--rs);text-align:center">
+      <div style="font-size:26px;font-weight:900;color:var(--green)">${totalActive}</div>
+      <div style="font-size:11px;color:var(--text2);font-weight:600;margin-top:2px">Active</div>
+    </div>
+    <div style="flex:1;min-width:90px;padding:14px 16px;background:var(--gray-l);border-radius:var(--rs);text-align:center">
+      <div style="font-size:26px;font-weight:900;color:var(--gray)">${notCalled}</div>
+      <div style="font-size:11px;color:var(--text2);font-weight:600;margin-top:2px">Not called</div>
+    </div>
+    <div style="flex:1;min-width:90px;padding:14px 16px;background:var(--amber-l);border-radius:var(--rs);text-align:center">
+      <div style="font-size:26px;font-weight:900;color:var(--amber)">${totalCalls}</div>
+      <div style="font-size:11px;color:var(--text2);font-weight:600;margin-top:2px">Call logs</div>
+    </div>
+    <div style="flex:1;min-width:90px;padding:14px 16px;background:var(--purple-l);border-radius:var(--rs);text-align:center">
+      <div style="font-size:22px;font-weight:900;color:var(--purple)">${_fmtDuration(totalTalkSecs)}</div>
+      <div style="font-size:11px;color:var(--text2);font-weight:600;margin-top:2px">Talk time</div>
+    </div>
+  </div>
+
+  ${hasActive?`
+  <!-- Status selection -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.05em">Select statuses to archive</div>
+    <div style="display:flex;gap:6px">
+      <button onclick="_bkSelAll(true)"  style="font-size:11px;padding:4px 10px;background:var(--amber-l);color:var(--amber);border-color:#e8d0a0"><i class="ti ti-check-all" style="font-size:11px"></i> All</button>
+      <button onclick="_bkSelAll(false)" style="font-size:11px;padding:4px 10px"><i class="ti ti-square" style="font-size:11px"></i> None</button>
+    </div>
+  </div>
+  ${statusRows}
+
+  <!-- Selection summary + action buttons -->
+  <div id="bk-sel-summary" style="font-size:12px;font-weight:700;color:var(--navy);background:var(--blue-l);border:1px solid var(--border);border-radius:var(--rs);padding:9px 13px;margin:12px 0 10px;display:flex;align-items:center;gap:6px">
+    <i class="ti ti-info-circle"></i><span id="bk-sel-summary-text"></span>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button id="bk-sel-archive-btn" onclick="_archiveSelected()" style="background:var(--amber-l);color:var(--amber);border-color:#e8d0a0"><i class="ti ti-device-floppy"></i> Archive selected &amp; remove from batch</button>
+    <button id="bk-full-archive-btn" onclick="_manualArchive()" style="background:var(--gray-l);color:var(--gray);border-color:var(--border)"><i class="ti ti-archive"></i> Archive full batch</button>
+  </div>
+  `:`
+  <div style="padding-top:12px;border-top:1px dashed var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <button id="bk-full-archive-btn" onclick="_manualArchive()" style="background:var(--amber-l);color:var(--amber);border-color:#e8d0a0"><i class="ti ti-device-floppy"></i> Archive full batch</button>
+    <span style="font-size:11px;color:var(--text2)">Push current batch to Google Sheet + create an encrypted local backup</span>
+  </div>`}
+  <div id="bk-manual-archive-msg" style="font-size:12px;margin-top:8px"></div>
+</div>
+
+<!-- Upload new batch -->
+<div class="card" style="margin-bottom:16px">
+  <div class="card-title" style="margin-bottom:12px"><i class="ti ti-upload" style="font-size:12px"></i> Upload new batch</div>
+  <div class="upload-zone" id="bk-drop-zone"
+    onclick="document.getElementById('bk-file-up').click()"
+    ondragover="event.preventDefault();this.style.borderColor='var(--blue)'"
+    ondragleave="this.style.borderColor=''"
+    ondrop="handleDropBk(event)">
+    <i class="ti ti-cloud-upload" style="font-size:32px;color:#bbb;display:block;margin-bottom:8px"></i>
+    <div style="font-weight:600;margin-bottom:4px">Drop CSV or Excel file here, or click to upload</div>
+    <div style="font-size:11px;margin-bottom:6px">Supports: <span class="badge b-green" style="font-size:9px">CSV</span> <span class="badge b-blue" style="font-size:9px">XLSX</span> <span class="badge b-amber" style="font-size:9px">XLS</span></div>
+    <div style="font-size:11px;color:var(--text2)">Columns: name, company, designation, email, phone, pin, city</div>
+  </div>
+  <input type="file" id="bk-file-up" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleUploadBk(this)">
+  <div id="bk-upload-msg" style="font-size:12px;color:var(--text2);margin-top:8px"></div>
+  <div style="margin-top:10px;padding:10px 12px;background:var(--blue-l);border-radius:var(--rs);font-size:11px;color:var(--navy);display:flex;align-items:flex-start;gap:8px">
+    <i class="ti ti-shield-lock" style="font-size:14px;flex-shrink:0;margin-top:1px"></i>
+    <div><strong>Auto-archive on upload:</strong> The current batch is pushed to Google Sheet and saved as an AES-256-GCM encrypted local backup. You choose which active customers to carry over before the new batch replaces the old one.</div>
+  </div>
+</div>
+
+<!-- Archived batches -->
+<div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+    <div class="card-title" style="margin:0;display:flex;align-items:center;gap:6px"><i class="ti ti-archive" style="font-size:12px"></i> Archived batches <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--text2)">— encrypted link vault</span></div>
+    <div id="archive-count-bk" style="font-size:11px;color:var(--text2)"></div>
+  </div>
+  <div id="archive-list-bk"></div>
+</div>
+
+</div>`;
+  renderArchivedBatches();
+  _updateBkSelSummary();
+}
+
+// ── called on every checkbox change ──
+function _onBkSelChange(sid){
+  const cb=document.getElementById(sid);
+  const row=document.getElementById('bk-row-'+sid);
+  if(row){
+    row.style.background=cb.checked?'var(--amber-l)':'var(--card)';
+    row.style.borderColor=cb.checked?'#e8d0a0':'var(--border)';
+    const tag=row.querySelector('span[style*="margin-left:auto"]');
+    if(tag) tag.innerHTML=cb.checked?'<span style="color:var(--amber)">✓ selected</span>':'<span style="color:#bbb">not selected</span>';
+  }
+  _updateBkSelSummary();
+}
+
+function _bkSelAll(val){
+  document.querySelectorAll('[id^="bk-sel-"]').forEach(cb=>{
+    if(cb.type==='checkbox'){cb.checked=val;_onBkSelChange(cb.id);}
+  });
+}
+
+function _updateBkSelSummary(){
+  const el=document.getElementById('bk-sel-summary-text');
+  const btn=document.getElementById('bk-sel-archive-btn');
+  if(!el) return;
+  let count=0;
+  document.querySelectorAll('[id^="bk-sel-"]').forEach(cb=>{
+    if(cb.type==='checkbox'&&cb.checked){
+      const s=cb.id.replace('bk-sel-','').replace(/_/g,' ');
+      count+=customers.filter(c=>c.status===s).length;
+    }
+  });
+  if(count>0){
+    el.textContent=count+' customer'+(count>1?'s':'')+' selected — will be archived and removed from the active batch';
+    if(btn){btn.disabled=false;btn.style.opacity='1';}
+  } else {
+    el.textContent='No status selected — tick at least one status above to archive';
+    if(btn){btn.disabled=true;btn.style.opacity='0.5';}
+  }
+}
+
+async function _archiveSelected(){
+  const selStatuses=[];
+  document.querySelectorAll('[id^="bk-sel-"]').forEach(cb=>{
+    if(cb.type==='checkbox'&&cb.checked) selStatuses.push(cb.id.replace('bk-sel-','').replace(/_/g,' '));
+  });
+  if(!selStatuses.length){showToast('No status selected','#854F0B');return;}
+  const toArchive=customers.filter(c=>selStatuses.includes(c.status));
+  if(!toArchive.length){showToast('No customers match the selected statuses','#854F0B');return;}
+  if(!confirm(`Archive ${toArchive.length} customer${toArchive.length>1?'s':''} (${selStatuses.join(', ')}) and remove them from the active batch?`)) return;
+
+  const btn=document.getElementById('bk-sel-archive-btn');
+  const msg=document.getElementById('bk-manual-archive-msg');
+  if(btn){btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Archiving...';}
+  if(msg) msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Archiving selected customers → pushing to Google Sheet...</span>';
+
+  const batch=await archiveOldData(toArchive);
+  // Remove archived customers from the active list
+  customers=customers.filter(c=>!selStatuses.includes(c.status));
+  save();
+  if(window.__cloudReady&&window.CloudSync&&CloudSync.isAuthed){
+    setSyncStatus('saving');
+    CloudSync.replaceCustomers(customers).then(()=>setSyncStatus('saved')).catch(e=>setSyncStatus('error',e.message));
+  }
+  const archMsg=_archMsgFor(batch);
+  if(msg) msg.innerHTML=batch
+    ?`<span style="color:var(--green)">✓ ${toArchive.length} customers archived &amp; removed from active batch.</span>${archMsg}`
+    :'<span style="color:var(--red)">✗ Archive failed — check Settings → Google Sheets.</span>';
+  showToast('✓ '+toArchive.length+' customers archived');
+  // Re-render the backup page to reflect updated counts
+  renderBackup();
+  document.getElementById('bk-manual-archive-msg').innerHTML=batch
+    ?`<span style="color:var(--green)">✓ ${toArchive.length} customers archived &amp; removed.</span>${archMsg}`
+    :'<span style="color:var(--red)">✗ Archive failed — check Settings → Google Sheets.</span>';
+}
+
+async function _manualArchive(){
+  if(!customers.length){showToast('Nothing to archive — batch is empty','#854F0B');return;}
+  const btn=document.getElementById('bk-full-archive-btn');
+  const msg=document.getElementById('bk-manual-archive-msg');
+  if(btn){btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Archiving...';}
+  if(msg) msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Archiving full batch → pushing to Google Sheet...</span>';
+  const batch=await archiveOldData(customers);
+  if(btn){btn.disabled=false;btn.innerHTML='<i class="ti ti-archive"></i> Archive full batch';}
+  const archMsg=_archMsgFor(batch);
+  if(msg) msg.innerHTML=batch
+    ?`<span style="color:var(--green)">✓ ${batch.count} customers archived (batch stays active).</span>${archMsg}`
+    :'<span style="color:var(--red)">✗ Archive failed — check Settings → Google Sheets.</span>';
+  renderArchivedBatches();
+  showToast(batch?'✓ '+batch.count+' customers archived':'Archive failed — check Settings');
+}
+
 // ── SETTINGS ───────────────────────────────────────────────────────
 function renderSettings(){
   document.getElementById('page-settings').innerHTML=`
@@ -3011,7 +3372,7 @@ function openProfile(id){
   if(!c) return;
   const [bg,fg]=ac(c.name);
   const area=c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city;
-  ['admin','caller','reports','settings'].forEach(x=>{document.getElementById('page-'+x).className='page';const b=document.getElementById('nb-'+x);if(b)b.className='nav-btn';});
+  ['admin','caller','reports','backup','settings'].forEach(x=>{document.getElementById('page-'+x).className='page';const b=document.getElementById('nb-'+x);if(b)b.className='nav-btn';});
   document.getElementById('page-profile').className='page active';
   document.getElementById('page-profile').innerHTML=`
 <button onclick="showPage('${prevPage}')" style="margin-bottom:14px"><i class="ti ti-arrow-left"></i> Back</button>
@@ -3423,6 +3784,7 @@ window.addEventListener('cloud-remote-change',e=>{
       if(id==='page-admin')   _syncAdmin();
       else if(id==='page-caller')  _syncCaller();
       else if(id==='page-reports') renderReports();
+      else if(id==='page-backup')  renderBackup();
       else if(id==='page-settings')renderSettings();
     }
     if(document.getElementById('login-screen').style.display!=='none') buildLoginList();
