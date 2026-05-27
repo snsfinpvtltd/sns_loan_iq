@@ -137,6 +137,7 @@ body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 
 /* ── FORM ELEMENTS ── */
 input,select,textarea{font-family:inherit;font-size:13px;padding:8px 11px;border:1.5px solid var(--border);border-radius:var(--rs);background:#fff;color:var(--text);width:100%;outline:none;transition:border .15s,box-shadow .15s;-webkit-appearance:none;appearance:none}
+input[type="checkbox"]{-webkit-appearance:checkbox;appearance:checkbox;width:auto;height:auto;padding:0;border:none;background:none;box-shadow:none;flex-shrink:0}
 select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7' viewBox='0 0 11 7'%3E%3Cpath d='M1 1l4.5 4.5L10 1' stroke='%235F6368' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
 input:focus,select:focus,textarea:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(27,107,58,0.1)}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{opacity:.6}
@@ -734,6 +735,7 @@ function showPage(p){
 
 // ── ADMIN ──────────────────────────────────────────────────────────
 function renderAdmin(){
+  _adminSelected=new Set();
   const total=customers.length,called=customers.filter(c=>c.status!=='Not Called').length,interested=customers.filter(c=>c.status==='Interested').length,enriched=customers.filter(c=>c.enriched).length;
   document.getElementById('page-admin').innerHTML=`
 <div class="g4">
@@ -753,7 +755,6 @@ function renderAdmin(){
   </div>
   <input type="file" id="file-up" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleUpload(this)">
   <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-    <button class="primary" onclick="enrichAll()"><i class="ti ti-brain"></i> AI enrich all</button>
     <button onclick="openModal('assign-modal');renderAssignModal()"><i class="ti ti-users"></i> Assign contacts</button>
     <button onclick="exportExcel()"><i class="ti ti-file-spreadsheet"></i> Export Excel</button>
     <button onclick="exportPDF()"><i class="ti ti-file-type-pdf"></i> Export PDF</button>
@@ -786,9 +787,14 @@ function renderAdmin(){
       <input type="text" id="f-search" oninput="adminFilter()" placeholder="Search name/company..." style="width:160px;font-size:12px;padding:6px 10px">
     </div>
   </div>
+  <div id="admin-sel-bar" style="display:none;align-items:center;gap:10px;background:var(--purple-l);border:1px solid #bfb9e8;border-radius:var(--rs);padding:8px 12px;margin-bottom:10px;flex-wrap:wrap">
+    <span id="admin-sel-count" style="font-size:12px;font-weight:600;color:var(--purple)">0 selected</span>
+    <button id="admin-ai-run-btn" onclick="_runAIOnSelected()" style="font-size:11px;padding:5px 12px;background:var(--purple);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600"><i class="ti ti-brain"></i> Run AI on selected</button>
+    <button onclick="_adminSelAll(false)" style="font-size:11px;padding:5px 10px;background:none;color:var(--text2);border:1px solid #ddd;border-radius:6px;cursor:pointer"><i class="ti ti-x"></i> Clear</button>
+  </div>
   <div style="overflow-x:auto">
   <table class="tbl">
-    <thead><tr><th>#</th><th>Customer</th><th>Company</th><th>Area / PIN</th><th>Score</th><th>Assigned to</th><th>Status</th><th>Uploaded</th><th>Contact</th><th>AI</th></tr></thead>
+    <thead><tr><th style="width:32px"><input type="checkbox" id="admin-sel-all" onchange="_adminSelAll(this.checked)" style="width:14px;height:14px;cursor:pointer;accent-color:var(--purple)"></th><th>#</th><th>Customer</th><th>Company</th><th>Area / PIN</th><th>Score</th><th>Assigned to</th><th>Status</th><th>Uploaded</th><th>Contact</th><th>AI</th></tr></thead>
     <tbody id="admin-tbody"></tbody>
   </table>
   </div>
@@ -799,9 +805,64 @@ function renderAdmin(){
 
 let _adminPage=1;
 const _ADMIN_PAGE_SIZE=100;
+let _adminSelected=new Set();
 
 function adminFilter(){_adminPage=1;_renderAdminTable();}
 function adminLoadMore(){_adminPage++;_renderAdminTable();}
+
+function _adminSelToggle(id,checked){
+  if(checked) _adminSelected.add(id); else _adminSelected.delete(id);
+  _updateAdminSelBar();
+}
+function _adminSelAll(checked){
+  document.querySelectorAll('#admin-tbody input[type="checkbox"][data-id]').forEach(cb=>{
+    const id=parseInt(cb.dataset.id||'0');
+    if(!id) return;
+    if(checked) _adminSelected.add(id); else _adminSelected.delete(id);
+    cb.checked=checked;
+  });
+  _updateAdminSelBar();
+}
+function _updateAdminSelBar(){
+  const bar=document.getElementById('admin-sel-bar');
+  const cnt=document.getElementById('admin-sel-count');
+  const allCb=document.getElementById('admin-sel-all');
+  const n=_adminSelected.size;
+  if(bar) bar.style.display=n>0?'flex':'none';
+  if(cnt) cnt.textContent=n+' selected';
+  if(allCb){
+    const total=document.querySelectorAll('#admin-tbody input[type="checkbox"][data-id]').length;
+    const checked=document.querySelectorAll('#admin-tbody input[type="checkbox"][data-id]:checked').length;
+    allCb.indeterminate=checked>0&&checked<total;
+    allCb.checked=total>0&&checked===total;
+  }
+}
+async function _runAIOnSelected(){
+  const ids=[..._adminSelected];
+  if(!ids.length){showToast('No customers selected','#A32D2D');return;}
+  const btn=document.getElementById('admin-ai-run-btn');
+  if(btn){btn.disabled=true;btn.innerHTML='<i class="ti ti-loader-2 ti-spin"></i> Running...';}
+  let done=0,failed=0;
+  for(const id of ids){
+    const c=customers.find(x=>x.id===id);
+    if(!c) continue;
+    c.enriched=false;c.aiInsight='';delete c.loanRange;delete c.priority;delete c.callerTip;
+    try{
+      const {text,usedProvider}=await getAIInsight(c);
+      c.aiInsight=_parseAIResult(c,text);
+      c.aiProvider=usedProvider;
+      c.enriched=true;
+      done++;
+    }catch(e){failed++;console.error('AI failed for',c.name,e);}
+    save();
+    if(btn) btn.innerHTML=`<i class="ti ti-loader-2 ti-spin"></i> ${done+failed}/${ids.length}...`;
+    _renderAdminTable();
+  }
+  _adminSelected.clear();
+  _updateAdminSelBar();
+  if(btn){btn.disabled=false;btn.innerHTML='<i class="ti ti-brain"></i> Run AI on selected';}
+  showToast('✓ AI done — '+done+' enriched'+(failed?' · '+failed+' failed':''));
+}
 
 function _renderAdminTable(){
   const fc=document.getElementById('f-caller')?.value||'All callers';
@@ -825,7 +886,8 @@ function _renderAdminTable(){
   if(!tbody) return;
   tbody.innerHTML=page.map((c,i)=>{
     const [bg,fg]=ac(c.name);
-    return`<tr onclick="openProfile(${c.id})">
+    return`<tr onclick="openProfile(${c.id})" style="${_adminSelected.has(c.id)?'background:var(--purple-l)':''}">
+      <td onclick="event.stopPropagation()" style="width:32px"><input type="checkbox" data-id="${c.id}" ${_adminSelected.has(c.id)?'checked':''} onchange="_adminSelToggle(${c.id},this.checked)" style="width:14px;height:14px;cursor:pointer;accent-color:var(--purple)"></td>
       <td style="color:var(--text2)">${i+1}</td>
       <td><div style="display:flex;align-items:center;gap:8px"><div class="avatar" style="width:30px;height:30px;font-size:11px;background:${bg};color:${fg}">${initials(c.name)}</div><div><div style="font-weight:700;font-size:12px">${c.name}</div><div style="font-size:11px;color:var(--text2)">${c.phone}</div></div></div></td>
       <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${c.company}</td>
@@ -835,10 +897,10 @@ function _renderAdminTable(){
       <td><span class="status-pill" style="background:${STATUS_BG[c.status]};color:${STATUS_COLOR[c.status]}"><span class="dot" style="background:${STATUS_COLOR[c.status]}"></span>${c.status}</span></td>
       <td>${fmtUpload(c.uploadedAt)}</td>
       <td>${fmtContactStatus(c)}</td>
-      <td>${c.enriched?`<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start"><span style="font-size:11px;font-weight:600;color:#27500A">&#x2713; Done</span>${c.priority?`<span class="badge ${c.priority==='High'?'b-green':c.priority==='Medium'?'b-amber':'b-gray'}" style="font-size:9px">${c.priority}</span>`:''}</div>`:`<span style="font-size:11px;color:#bbb">Pending</span>`}</td>
+      <td onclick="event.stopPropagation()">${c.enriched?`<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start"><span style="font-size:11px;font-weight:600;color:#27500A">&#x2713; Done</span>${c.priority?`<span class="badge ${c.priority==='High'?'b-green':c.priority==='Medium'?'b-amber':'b-gray'}" style="font-size:9px">${c.priority}</span>`:''}<button onclick="enrichOne(${c.id},this)" style="font-size:10px;padding:3px 7px;margin-top:2px"><i class="ti ti-refresh"></i> Re-run</button></div>`:`<button onclick="enrichOne(${c.id},this)" style="font-size:11px;padding:4px 9px;background:var(--purple-l);color:var(--purple);border-color:#bfb9e8"><i class="ti ti-brain"></i> Generate</button>`}</td>
     </tr>`;}).join('');
   if(page.length<total){
-    tbody.innerHTML+=`<tr><td colspan="10" style="text-align:center;padding:14px 0"><button onclick="adminLoadMore()" style="font-size:12px;padding:7px 20px;border-radius:20px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600"><i class="ti ti-chevron-down" style="font-size:11px;margin-right:4px"></i>Load more (${total-page.length} remaining)</button></td></tr>`;
+    tbody.innerHTML+=`<tr><td colspan="11" style="text-align:center;padding:14px 0"><button onclick="adminLoadMore()" style="font-size:12px;padding:7px 20px;border-radius:20px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600"><i class="ti ti-chevron-down" style="font-size:11px;margin-right:4px"></i>Load more (${total-page.length} remaining)</button></td></tr>`;
   }
 }
 
@@ -1614,37 +1676,6 @@ async function _finalizeImport(newC,keepStatuses,msg){
   adminFilter();renderArchivedBatches();
 }
 
-async function enrichAll(){
-  const btn=event.target.closest('button');
-  btn.disabled=true;btn.innerHTML='<i class="ti ti-loader"></i> Enriching...';
-  const msg=document.getElementById('upload-msg');
-  const list=customers.slice();
-  let failed=0;
-  for(let i=0;i<list.length;i++){
-    const c=list[i];
-    // clear previous AI data so stale results never show
-    c.enriched=false;c.aiInsight='';delete c.loanRange;delete c.priority;delete c.callerTip;
-    msg.innerHTML=`<span style="color:var(--blue)"><i class="ti ti-loader" style="font-size:11px"></i> Analysing ${i+1}/${list.length}: ${c.name}...</span>`;
-    try{
-      const {text,usedProvider}=await getAIInsight(c);
-      c.aiInsight=_parseAIResult(c,text);
-      c.aiProvider=usedProvider;
-      c.enriched=true;
-    }catch(e){
-      failed++;
-      c.aiInsight='';
-      msg.innerHTML=`<span style="color:#A32D2D">&#x26A0; ${c.name}: ${e.message}</span>`;
-      await new Promise(r=>setTimeout(r,1200));
-    }
-    _renderAdminTable();
-    await new Promise(r=>setTimeout(r,500));
-  }
-  save();
-  msg.innerHTML=failed
-    ?`<span style="color:#A32D2D">&#x26A0; Done — ${list.length-failed} enriched, ${failed} failed. Check AI Settings.</span>`
-    :`<span style="color:#27500A">&#x2713; All ${list.length} records enriched with online AI analysis.</span>`;
-  btn.disabled=false;btn.innerHTML='<i class="ti ti-brain"></i> AI enrich all';
-}
 
 // ── ASSIGN MODAL ───────────────────────────────────────────────────
 function renderAssignModal(){
@@ -2750,11 +2781,12 @@ function renderBackup(){
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button id="bk-sel-archive-btn" onclick="_archiveSelected()" style="background:var(--amber-l);color:var(--amber);border-color:#e8d0a0"><i class="ti ti-device-floppy"></i> Archive selected &amp; remove from batch</button>
     <button id="bk-full-archive-btn" onclick="_manualArchive()" style="background:var(--gray-l);color:var(--gray);border-color:var(--border)"><i class="ti ti-archive"></i> Archive full batch</button>
+    <button onclick="_exportBackupExcel()" style="background:var(--green-l);color:var(--green);border-color:#A8D8BC"><i class="ti ti-file-spreadsheet"></i> Export selected to Excel</button>
   </div>
   `:`
   <div style="padding-top:12px;border-top:1px dashed var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:center">
     <button id="bk-full-archive-btn" onclick="_manualArchive()" style="background:var(--amber-l);color:var(--amber);border-color:#e8d0a0"><i class="ti ti-device-floppy"></i> Archive full batch</button>
-    <span style="font-size:11px;color:var(--text2)">Push current batch to Google Sheet + create an encrypted local backup</span>
+    <button onclick="_exportBackupExcel()" style="background:var(--green-l);color:var(--green);border-color:#A8D8BC"><i class="ti ti-file-spreadsheet"></i> Export all to Excel</button>
   </div>`}
   <div id="bk-manual-archive-msg" style="font-size:12px;margin-top:8px"></div>
 </div>
@@ -2882,6 +2914,59 @@ async function _manualArchive(){
     :'<span style="color:var(--red)">✗ Archive failed — check Settings → Google Sheets.</span>';
   renderArchivedBatches();
   showToast(batch?'✓ '+batch.count+' customers archived':'Archive failed — check Settings');
+}
+
+function _exportBackupExcel(){
+  if(!window.XLSX){showToast('Excel library not loaded — reload the page','#A32D2D');return;}
+  // Determine which customers to export based on checked status filters
+  const selStatuses=[];
+  document.querySelectorAll('[id^="bk-sel-"]').forEach(cb=>{
+    if(cb.type==='checkbox'&&cb.checked) selStatuses.push(cb.id.replace('bk-sel-','').replace(/_/g,' '));
+  });
+  const list=selStatuses.length?customers.filter(c=>selStatuses.includes(c.status)):customers;
+  if(!list.length){showToast('No customers match the selected filter','#A32D2D');return;}
+  const label=selStatuses.length?selStatuses.join(', '):'All statuses';
+  try{
+    const xs=v=>{
+      if(v==null) return '';
+      if(typeof v==='object') return '';
+      return String(v).replace(/[\x00-\x1F\x7F]/g,' ').trim();
+    };
+    const hdr=['#','Name','Company','Designation','Phone','Email','Area','PIN',
+      'Score','Eligibility','Loan Type','Status','Caller','Comments',
+      'Last Call','Call Logs','Talk Time','AI Analysis','Caller Tip'];
+    const rows=list.map((c,i)=>{
+      const hist=c.callHistory||[];
+      const pin=xs(c.pin);
+      const area=pin&&pin!=='—'?(PIN_MAP[pin]||xs(c.city)):xs(c.city);
+      const last=hist.length?hist[hist.length-1]:null;
+      return [
+        xs(i+1), xs(c.name), xs(c.company), xs(c.designation),
+        xs(c.phone), xs(c.email), xs(area), pin!=='—'?pin:'',
+        xs(c.score), xs(c.eligibility), xs(c.loan), xs(c.status),
+        xs(callerName(c.callerId)), xs(c.comments),
+        last?xs(last.date):'', xs(hist.length),
+        xs(_fmtDuration(c.totalCallSecs||0)),
+        xs(c.aiInsight).slice(0,500), xs(c.callerTip).slice(0,200),
+      ];
+    });
+    const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
+    ws['!cols']=[{wch:4},{wch:22},{wch:28},{wch:18},{wch:14},{wch:28},{wch:16},{wch:8},
+      {wch:7},{wch:12},{wch:16},{wch:16},{wch:14},{wch:30},{wch:12},{wch:10},{wch:12},{wch:45},{wch:30}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Customers');
+    const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download='SNS_Backup_'+today()+'.xlsx';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('✓ Exported '+list.length+' customers ('+label+')');
+  }catch(e){
+    console.error('Backup export error:',e);
+    showToast('Export failed: '+e.message,'#A32D2D');
+  }
 }
 
 // ── SETTINGS ───────────────────────────────────────────────────────
@@ -3563,30 +3648,55 @@ function _getFilterSummary(){
 }
 
 function exportExcel(){
+  if(!window.XLSX){showToast('Excel library not loaded — check internet connection and reload','#A32D2D');return;}
   const list=_getFilteredList();
   if(!list.length){showToast('No records match current filters','#A32D2D');return;}
-  const dateStr=new Date().toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'});
-  const wb=XLSX.utils.book_new();
-  const info=[
-    ['SNS LoanIQ Agent - Customer Export'],['SNS Financial Services'],
-    ['Date',dateStr],['Records',list.length],['Filters',_getFilterSummary()],['Exported by',currentUser||'Admin'],[],
-  ];
+  // Safe coercions — everything ends up as a plain string (no numbers passed to XLSX)
+  const xs=v=>{
+    if(v==null) return '';
+    if(typeof v==='object') return '';   // drop any object/array that slipped in
+    return String(v).replace(/[\x00-\x1F\x7F]/g,' ').trim();
+  };
   const hdr=['#','Name','Company','Designation','Phone','Email','Area','PIN',
-    'Score','Eligibility','Loan Type','Loan Range','Priority',
-    'Status','Caller','Comments','AI Analysis','Caller Tip','Last Call'];
-  const rows=list.map((c,i)=>[
-    i+1,c.name,c.company,c.designation||'',c.phone,c.email,
-    c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city,c.pin!=='—'?c.pin:'',
-    c.score,c.eligibility,c.loan,c.loanRange||'',c.priority||'',c.status,
-    callerName(c.callerId),c.comments,c.aiInsight||'',c.callerTip||'',
-    c.callHistory.length?c.callHistory.slice(-1)[0].date:'',
-  ]);
-  const ws=XLSX.utils.aoa_to_sheet([...info,hdr,...rows]);
-  ws['!cols']=[{wch:4},{wch:22},{wch:28},{wch:18},{wch:14},{wch:28},{wch:16},{wch:8},
-    {wch:7},{wch:12},{wch:18},{wch:14},{wch:10},{wch:16},{wch:14},{wch:30},{wch:45},{wch:35},{wch:12}];
-  XLSX.utils.book_append_sheet(wb,'Customers',ws);
-  XLSX.writeFile(wb,'SNS_LoanIQ_'+today()+'.xlsx');
-  showToast('Excel exported - '+list.length+' records');
+    'Score','Eligibility','Loan Type','Loan Range','Priority','Status','Caller',
+    'Comments','Last Call','Call Logs','Talk Time','AI Analysis','Caller Tip'];
+  let rows;
+  try{
+    rows=list.map((c,i)=>{
+      const hist=c.callHistory||[];
+      const pin=xs(c.pin);
+      const area=pin&&pin!=='—'?(PIN_MAP[pin]||xs(c.city)):xs(c.city);
+      const last=hist.length?hist[hist.length-1]:null;
+      return [
+        xs(i+1), xs(c.name), xs(c.company), xs(c.designation),
+        xs(c.phone), xs(c.email), xs(area), pin!=='—'?pin:'',
+        xs(c.score), xs(c.eligibility), xs(c.loan), xs(c.loanRange),
+        xs(c.priority), xs(c.status), xs(callerName(c.callerId)), xs(c.comments),
+        last?xs(last.date):'', xs(hist.length),
+        xs(_fmtDuration(c.totalCallSecs||0)),
+        xs(c.aiInsight).slice(0,500), xs(c.callerTip).slice(0,200),
+      ];
+    });
+  }catch(e){showToast('Export failed (data prep): '+e.message,'#A32D2D');console.error(e);return;}
+  let ws;
+  try{
+    ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
+  }catch(e){showToast('Export failed (build sheet): '+e.message,'#A32D2D');console.error(e);return;}
+  try{
+    ws['!cols']=[{wch:4},{wch:22},{wch:28},{wch:18},{wch:14},{wch:28},{wch:16},{wch:8},
+      {wch:7},{wch:12},{wch:14},{wch:12},{wch:10},{wch:16},{wch:14},{wch:30},{wch:12},{wch:10},{wch:12},{wch:45},{wch:30}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Customers');
+    // Use Blob download instead of XLSX.writeFile (more reliable in single-page apps)
+    const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download='SNS_LoanIQ_'+today()+'.xlsx';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+    showToast('✓ Excel exported — '+list.length+' records');
+  }catch(e){showToast('Export failed (write file): '+e.message,'#A32D2D');console.error(e);}
 }
 
 function exportPDF(){
