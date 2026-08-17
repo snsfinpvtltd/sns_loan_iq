@@ -155,6 +155,23 @@ button:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
 .btn-call-now:hover{background:var(--green-d);transform:translateY(-1px);box-shadow:0 4px 14px rgba(27,107,58,0.38)}
 .call-notice{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--green);background:var(--green-l);border:1px solid var(--gold-border);border-radius:var(--rs);padding:6px 10px;margin-bottom:10px}
 
+/* ── BACK TO TOP ── */
+#scroll-top-btn{
+  position:fixed;bottom:24px;left:24px;z-index:250;
+  width:44px;height:44px;border-radius:50%;
+  background:var(--navy);color:#fff;border:none;
+  font-size:17px;cursor:pointer;
+  box-shadow:0 4px 14px rgba(11,31,75,0.38),0 2px 6px rgba(0,0,0,0.15);
+  display:none;align-items:center;justify-content:center;
+  opacity:0;transform:translateY(8px);
+  transition:opacity .18s,transform .18s;
+}
+#scroll-top-btn.visible{display:flex;opacity:1;transform:translateY(0)}
+#scroll-top-btn:hover{background:var(--navy-mid)}
+
+/* ── CALLER FILTER BAR (sticky under topbar while scrolling the list) ── */
+.caller-filter-bar{position:sticky;z-index:150;background:var(--bg);padding-top:10px;margin-top:-10px;padding-bottom:6px;box-shadow:0 6px 10px -8px rgba(11,31,75,0.25)}
+
 /* ── LIVE CALL TIMER WIDGET ── */
 #call-timer-widget{position:fixed;bottom:24px;right:24px;z-index:9999;background:var(--navy-d);color:#fff;border-radius:16px;padding:16px 18px;box-shadow:0 8px 36px rgba(0,0,0,0.36),0 2px 8px rgba(0,0,0,0.18);min-width:220px;display:none;flex-direction:column;gap:10px;border:1.5px solid rgba(255,255,255,0.12)}
 #call-timer-widget.visible{display:flex;animation:timerPop .22s cubic-bezier(.34,1.56,.64,1)}
@@ -424,6 +441,11 @@ tr.caller-drill-row>td{padding:0!important;background:var(--bg)!important}
     <div id="page-backup" class="page"></div>
   </div>
 </div>
+
+<!-- ── BACK TO TOP ── -->
+<button id="scroll-top-btn" onclick="scrollAppToTop()" title="Back to top" aria-label="Back to top">
+  <i class="ti ti-arrow-up"></i>
+</button>
 
 <!-- ── LIVE CALL TIMER WIDGET ── -->
 <div id="call-timer-widget">
@@ -2045,6 +2067,7 @@ function renderCaller(){
     +'<div class="mc"><div class="mc-v" id="mc-remaining">'+(baseList.length-done)+'</div><div class="mc-l">Remaining</div></div>'
     +'<div class="mc"><div class="mc-v" id="mc-interested">'+interested+'</div><div class="mc-l">Interested</div></div>'
     +'</div>'
+    +'<div id="caller-filter-bar" class="caller-filter-bar">'
     +adminBar
     +'<div style="position:relative;margin-bottom:10px">'
     +'<i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text2);font-size:14px;pointer-events:none"></i>'
@@ -2068,9 +2091,35 @@ function renderCaller(){
     +'<span style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.05em;margin-left:6px">CITY:</span>'
     +'<select id="caller-city" onchange="filterCallerCards()" style="font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--rs);background:var(--card)"><option>All cities</option>'+cityOpts+'</select>'
     +'</div>'
+    +'</div>'
     +'<div id="caller-cards"></div>';
   filterCallerCards();
+  _stickCallerFilterBar();
 }
+
+// Keep the caller filter bar visible under the topbar while scrolling the list.
+function _stickCallerFilterBar(){
+  const bar=document.getElementById('caller-filter-bar');
+  const topbar=document.querySelector('.topbar');
+  if(!bar||!topbar) return;
+  bar.style.top=topbar.offsetHeight+'px';
+}
+window.addEventListener('resize',()=>{if(typeof _stickCallerFilterBar==='function')_stickCallerFilterBar();});
+
+// ── BACK TO TOP ──────────────────────────────────────────────────
+function scrollAppToTop(){window.scrollTo({top:0,behavior:'smooth'});}
+(function(){
+  let ticking=false;
+  window.addEventListener('scroll',()=>{
+    if(ticking) return;
+    ticking=true;
+    requestAnimationFrame(()=>{
+      const btn=document.getElementById('scroll-top-btn');
+      if(btn) btn.classList.toggle('visible',window.scrollY>400);
+      ticking=false;
+    });
+  },{passive:true});
+})();
 
 function filterCallerView(callerId,el){
   document.querySelectorAll('.caller-chip').forEach(c=>c.className='caller-chip');

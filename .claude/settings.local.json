@@ -10,7 +10,10 @@
       "Bash(node test_showmore.js)",
       "Bash(npm init *)",
       "Bash(node -e ' *)",
-      "Bash(node test_busyguard.js)"
+      "Bash(node test_busyguard.js)",
+      "Bash(node test_stickyfilter.js)",
+      "Bash(taskkill //IM python.exe //F)",
+      "Bash(node test_scrolltop.js)"
     ]
   }
 }
