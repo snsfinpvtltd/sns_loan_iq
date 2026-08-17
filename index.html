@@ -236,6 +236,17 @@ tr.caller-drill-row>td{padding:0!important;background:var(--bg)!important}
   .main{padding:var(--s4) var(--s4)}
   .g4{grid-template-columns:repeat(2,1fr);gap:10px}
   .g3{grid-template-columns:repeat(2,1fr)}
+
+  /* Live call timer: keep it from floating over list content (e.g. the
+     "Show more" button) on narrower screens — pin it as a top bar instead
+     of a bottom-right corner box. */
+  #call-timer-widget{
+    top:70px;bottom:auto;left:12px;right:12px;
+    flex-direction:row;align-items:center;justify-content:space-between;
+    min-width:0;padding:10px 14px;border-radius:14px;
+  }
+  #call-timer-widget #timer-digits{font-size:22px}
+  #call-timer-widget .end-btn{padding:8px 12px;font-size:12px;flex-shrink:0}
 }
 
 /* ── MOBILE (≤767px) ── */
@@ -592,6 +603,9 @@ const ADMIN_PIN='1234'; // ← change this to your preferred admin PIN
 const STATUS_COLOR={'Not Called':'#888780','Follow Up':'#BA7517','Not Reachable':'#A32D2D','Wrong Number':'#A32D2D','Not Interested':'#A32D2D','Already Has Loan':'#534AB7','Callback Requested':'#185FA5','Interested':'#27500A'};
 const STATUS_BG={'Not Called':'#F1EFE8','Follow Up':'#FAEEDA','Not Reachable':'#FCEBEB','Wrong Number':'#FCEBEB','Not Interested':'#FCEBEB','Already Has Loan':'#EEEDFE','Callback Requested':'#E6F1FB','Interested':'#EAF3DE'};
 const STATUSES=['Not Called','Interested','Follow Up','Not Reachable','Wrong Number','Not Interested','Already Has Loan','Callback Requested'];
+const STATUS_IMPORT_MAP={'pending':'Not Called','interested':'Interested','not interested':'Not Interested','call back later':'Callback Requested','no answer':'Not Reachable','converted':'Converted','wrong number':'Wrong Number'};
+const STATUS_EXPORT_MAP={'Not Called':'Pending','Follow Up':'Pending','Interested':'Interested','Not Interested':'Not Interested','Callback Requested':'Call Back Later','Not Reachable':'No Answer','Converted':'Converted','Wrong Number':'Wrong Number'};
+function computeGrade(s){return s>=70?'A':s>=55?'B':s>=40?'C':'D';}
 const PIN_MAP={'620017':'Khajamalai','620018':'Thillai Nagar','620003':'Woraiyur','620009':'Dheeran Nagar','621105':'Samayapuram','621212':'Perambalur','612001':'Kumbakonam','641601':'Tiruppur'};
 const SECTOR_MAP={'Sivanithra Associates':'General Business','C.Swaminathan The Principal-Srm Ihm':'Education','MRP Handicrafts And Jewellery':'Handicrafts / Retail','Veteran Technology Solution':'IT / Technology','G Punitha Books':'Books / Retail','Royal Software':'IT / Software','ESL Technical Training And Trade Test Center':'Education / Training','The Monster IT':'IT / Technology','RO Sales And Service':'Sales / Service','White O Chem':'Chemicals','SAS Groups':'Business Conglomerate'};
 const AVATAR_COLORS=[['#E6F1FB','#0C447C'],['#EAF3DE','#27500A'],['#FAEEDA','#854F0B'],['#EEEDFE','#3C3489'],['#FAECE7','#712B13'],['#E1F5EE','#085041'],['#FCEBEB','#791F1F']];
@@ -751,7 +765,7 @@ function renderAdmin(){
     <i class="ti ti-cloud-upload" style="font-size:32px;color:#bbb;display:block;margin-bottom:8px"></i>
     <div style="font-weight:600;margin-bottom:4px">Drop CSV or Excel file here, or click to upload</div>
     <div style="font-size:11px;margin-bottom:6px">Supports: <span class="badge b-green" style="font-size:9px">CSV</span> <span class="badge b-blue" style="font-size:9px">XLSX</span> <span class="badge b-amber" style="font-size:9px">XLS</span></div>
-    <div style="font-size:11px;color:var(--text2)">Columns: name, company, designation, email, phone, pin, city</div>
+    <div style="font-size:11px;color:var(--text2)">New format: Name, Mobile, Location, Lead Type, Status, Final Score, AI Reasoning… (37 cols) · Old format: name, company, phone, city also supported</div>
   </div>
   <input type="file" id="file-up" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleUpload(this)">
   <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
@@ -794,7 +808,7 @@ function renderAdmin(){
   </div>
   <div style="overflow-x:auto">
   <table class="tbl">
-    <thead><tr><th style="width:32px"><input type="checkbox" id="admin-sel-all" onchange="_adminSelAll(this.checked)" style="width:14px;height:14px;cursor:pointer;accent-color:var(--purple)"></th><th>#</th><th>Customer</th><th>Company</th><th>Area / PIN</th><th>Score</th><th>Assigned to</th><th>Status</th><th>Uploaded</th><th>Contact</th><th>AI</th></tr></thead>
+    <thead><tr><th style="width:32px"><input type="checkbox" id="admin-sel-all" onchange="_adminSelAll(this.checked)" style="width:14px;height:14px;cursor:pointer;accent-color:var(--purple)"></th><th>#</th><th>Customer</th><th>Company</th><th>Area / PIN</th><th>Score</th><th>Assigned to</th><th>Status</th><th>Lead</th><th>Uploaded</th><th>Contact</th><th>AI</th></tr></thead>
     <tbody id="admin-tbody"></tbody>
   </table>
   </div>
@@ -892,15 +906,16 @@ function _renderAdminTable(){
       <td><div style="display:flex;align-items:center;gap:8px"><div class="avatar" style="width:30px;height:30px;font-size:11px;background:${bg};color:${fg}">${initials(c.name)}</div><div><div style="font-weight:700;font-size:12px">${c.name}</div><div style="font-size:11px;color:var(--text2)">${c.phone}</div></div></div></td>
       <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${c.company}</td>
       <td style="font-size:12px">${c.pin!=='—'?(PIN_MAP[c.pin]||c.city)+' · '+c.pin:c.city}</td>
-      <td><div style="display:flex;align-items:center;gap:5px"><span style="font-weight:800;color:${scoreColor(c.score)}">${c.score}</span><div class="prog-bg" style="width:36px"><div class="prog-f" style="width:${c.score}%;background:${scoreColor(c.score)}"></div></div></div></td>
+      <td><div style="display:flex;align-items:center;gap:5px"><span style="font-weight:800;color:${scoreColor(c.score)}">${c.score}</span><span style="font-size:9px;font-weight:700;padding:1px 4px;border-radius:3px;background:${scoreColor(c.score)}22;color:${scoreColor(c.score)}">${computeGrade(c.score)}</span><div class="prog-bg" style="width:30px"><div class="prog-f" style="width:${c.score}%;background:${scoreColor(c.score)}"></div></div></div></td>
       <td style="font-size:12px">${callerName(c.callerId)}</td>
       <td><span class="status-pill" style="background:${STATUS_BG[c.status]};color:${STATUS_COLOR[c.status]}"><span class="dot" style="background:${STATUS_COLOR[c.status]}"></span>${c.status}</span></td>
+      <td style="font-size:11px">${c.leadType?`<span class="badge b-blue" style="font-size:9px">${c.leadType}</span>`:'<span style="color:var(--text2)">—</span>'}</td>
       <td>${fmtUpload(c.uploadedAt)}</td>
       <td>${fmtContactStatus(c)}</td>
       <td onclick="event.stopPropagation()">${c.enriched?`<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start"><span style="font-size:11px;font-weight:600;color:#27500A">&#x2713; Done</span>${c.priority?`<span class="badge ${c.priority==='High'?'b-green':c.priority==='Medium'?'b-amber':'b-gray'}" style="font-size:9px">${c.priority}</span>`:''}<button onclick="enrichOne(${c.id},this)" style="font-size:10px;padding:3px 7px;margin-top:2px"><i class="ti ti-refresh"></i> Re-run</button></div>`:`<button onclick="enrichOne(${c.id},this)" style="font-size:11px;padding:4px 9px;background:var(--purple-l);color:var(--purple);border-color:#bfb9e8"><i class="ti ti-brain"></i> Generate</button>`}</td>
     </tr>`;}).join('');
   if(page.length<total){
-    tbody.innerHTML+=`<tr><td colspan="11" style="text-align:center;padding:14px 0"><button onclick="adminLoadMore()" style="font-size:12px;padding:7px 20px;border-radius:20px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600"><i class="ti ti-chevron-down" style="font-size:11px;margin-right:4px"></i>Load more (${total-page.length} remaining)</button></td></tr>`;
+    tbody.innerHTML+=`<tr><td colspan="12" style="text-align:center;padding:14px 0"><button onclick="adminLoadMore()" style="font-size:12px;padding:7px 20px;border-radius:20px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600"><i class="ti ti-chevron-down" style="font-size:11px;margin-right:4px"></i>Load more (${total-page.length} remaining)</button></td></tr>`;
   }
 }
 
@@ -956,7 +971,7 @@ function processFile(file, msgId){
   }
 }
 
-function normalizeKey(k){return k.trim().toLowerCase().replace(/[\s_\-]+/g,'_');}
+function normalizeKey(k){return k.trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');}
 
 // ── CONTACT-ACTION TRACKING ───────────────────────────────────────
 function trackCall(id,event){
@@ -978,9 +993,9 @@ function trackCall(id,event){
   save();
   _startCallTimer(id);
   setTimeout(()=>{
-    adminFilter();
+    if(typeof _renderAdminTable==='function') _renderAdminTable();
     if(typeof _refreshCallerStats==='function') _refreshCallerStats();
-    if(typeof filterCallerCards==='function') filterCallerCards();
+    if(typeof _doRenderCallerCards==='function') _doRenderCallerCards();
   },50);
   return true;
 }
@@ -1510,15 +1525,77 @@ async function downloadArchivedCsv(id){
 async function importFromRowObjects(rows,msg){
   const activeCals=callers.filter(c=>c.active);
   const uploadedAt=Date.now();
+  const pi=s=>{const n=parseInt(String(s),10);return isNaN(n)?null:n;};
   const newC=rows.filter(r=>Object.values(r).some(v=>String(v).trim())).map((r,i)=>{
-    // normalize keys
     const o={};Object.entries(r).forEach(([k,v])=>o[normalizeKey(k)]=String(v).trim());
-    const score=60+Math.floor(Math.random()*35);
     const cal=activeCals[i%activeCals.length];
+    // ── Identity ──────────────────────────────────────────────────
     const name=o.name||o.first_name||o.customer_name||o.full_name||'Unknown';
-    const phone=o.phone||o.mobile||o.phone_number||o.glusr_usr_ph_mobile||'';
+    const phone=o.mobile||o.phone||o.phone_number||o.glusr_usr_ph_mobile||'';
     const pin=o.pin||o.pincode||o.zip||o.postal_code||'—';
-    return{id:Date.now()+i,name,company:o.company||o.company_name||o.business||'',designation:o.designation||o.role||o.title||'',email:o.email||o.email_id||o.email1||'',phone,pin,city:o.city||o.town||'',score,eligibility:score>=80?'High':score>=60?'Moderate':'Low',loan:score>=80?'Business / MSME Loan':'Personal Loan',callerId:cal?cal.id:'',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:'',uploadedAt,lastCalledAt:null,callCount:0,lastWaAt:null,waCount:0,totalCallSecs:0};
+    const city=o.location||o.city||o.town||o.district||'';
+    // ── Lead & Status ─────────────────────────────────────────────
+    const leadType=o.lead_type||'';
+    const sourceSheet=o.source_sheet||o.source||'';
+    const remarks=o.remarks||o.comments||o.notes||'';
+    const statusRaw=(o.status||'').toLowerCase();
+    const status=STATUSES.includes(o.status)?o.status:(STATUS_IMPORT_MAP[statusRaw]||'Not Called');
+    // ── Score ─────────────────────────────────────────────────────
+    const rawScore=o.final_score_0_100||o.final_score||o.score||o.credit_score||'';
+    const score=rawScore!==''&&!isNaN(parseInt(rawScore,10))?Math.min(100,Math.max(0,parseInt(rawScore,10))):60+Math.floor(Math.random()*35);
+    const aiStatus=(o.ai_analysis_status||'').toLowerCase();
+    const enriched=aiStatus==='done'||aiStatus==='complete';
+    // ── Sub-scores ────────────────────────────────────────────────
+    const scoreDataQuality=pi(o.data_quality_20);
+    const scoreLocation=pi(o.location_score_20);
+    const scoreIncome=pi(o.income_score_20);
+    const scoreRepayment=pi(o.repayment_score_20);
+    const scoreProductFit=pi(o.product_fit_20);
+    // ── Analysis Detail ───────────────────────────────────────────
+    const locationType=o.location_type||'';
+    const aiInsight=o.ai_reasoning||'';
+    const keyInsights=o.key_insights||'';
+    const districtNotes=o.district_notes||'';
+    const aiAnalysedAt=o.ai_analysed_at||'';
+    // ── Financial Profile ─────────────────────────────────────────
+    const customerProfile=o.customer_profile||'';
+    const incomeBand=o.income_band||'';
+    const monthlyIncome=pi(o.monthly_income||o.monthly_income_rs);
+    const maxLoan=pi(o.max_loan||o.max_loan_rs);
+    const maxEmi=pi(o.max_emi||o.max_emi_rs);
+    const loanTenure=pi(o.loan_tenure_months)||pi(o.tenure);
+    const recLoan=pi(o.rec_loan||o.rec_loan_rs);
+    const recEmi=pi(o.rec_emi||o.rec_emi_rs);
+    const foirPct=pi(o.foir);
+    const recommendedProduct=o.recommended_product||'';
+    // ── Call Tracking ─────────────────────────────────────────────
+    const callerTip=o.call_script||o.caller_tip||'';
+    const calledAt=o.called_at||'';
+    const calledBy=o.called_by||'';
+    // ── Raw JSON ──────────────────────────────────────────────────
+    const scoreBreakdownJson=o.score_breakdown_json||'';
+    const riskFlagsJson=o.risk_flags_json||'';
+    // ── Derived fields ────────────────────────────────────────────
+    const eligibility=score>=80?'High':score>=60?'Moderate':'Low';
+    const loan=recommendedProduct||(score>=80?'Business / MSME Loan':'Personal Loan');
+    const loanRange=maxLoan?'₹'+(maxLoan>=100000?(maxLoan/100000).toFixed(1)+'L':maxLoan.toLocaleString('en-IN')):o.loan_range||'';
+    const priority=score>=70?'High':score>=45?'Medium':'Low';
+    const callHistory=[];
+    if(calledAt||calledBy) callHistory.push({date:calledAt?calledAt.split(' ')[0]:today(),ts:calledAt?new Date(calledAt).getTime()||Date.now():Date.now(),caller:calledBy||'Imported',status,comment:'Imported call record'});
+    return{id:Date.now()+i,name,phone,pin,city,
+      company:o.company||o.company_name||o.business||'',
+      designation:customerProfile||o.designation||o.role||o.title||'',
+      email:o.email||o.email_id||o.email1||'',
+      score,eligibility,loan,loanRange,priority,
+      callerId:cal?cal.id:'',status,comments:remarks,
+      callHistory,enriched,aiInsight,callerTip,
+      uploadedAt,lastCalledAt:callHistory.length?callHistory[0].ts:null,
+      callCount:callHistory.length,lastWaAt:null,waCount:0,totalCallSecs:0,
+      leadType,sourceSheet,locationType,keyInsights,districtNotes,aiAnalysedAt,
+      customerProfile,incomeBand,monthlyIncome,maxLoan,maxEmi,loanTenure,
+      recLoan,recEmi,foirPct,
+      scoreDataQuality,scoreLocation,scoreIncome,scoreRepayment,scoreProductFit,
+      scoreBreakdownJson,riskFlagsJson};
   });
   if(!newC.length){msg.innerHTML='<span style="color:var(--red)">✗ No valid rows found. Check column headers.</span>';return;}
   _checkAndShowBackupModal(newC,msg);
@@ -1527,18 +1604,57 @@ async function importFromRowObjects(rows,msg){
 async function importFromCSVText(text,msg){
   const lines=text.split('\n').filter(r=>r.trim());
   if(lines.length<2){msg.innerHTML='<span style="color:var(--red)">✗ Empty CSV.</span>';return;}
-  const headers=lines[0].split(',').map(h=>normalizeKey(h.replace(/"/g,'')));
+  // Parse CSV respecting quoted fields
+  function parseCSVRow(row){const out=[];let cur='',inQ=false;for(let i=0;i<row.length;i++){const ch=row[i];if(ch==='"'){if(inQ&&row[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}else if(ch===','&&!inQ){out.push(cur);cur='';}else cur+=ch;}out.push(cur);return out;}
+  const headers=parseCSVRow(lines[0]).map(h=>normalizeKey(h));
   const activeCals=callers.filter(c=>c.active);
   const uploadedAt=Date.now();
+  const pi=s=>{const n=parseInt(String(s),10);return isNaN(n)?null:n;};
   const newC=lines.slice(1).filter(r=>r.trim()).map((row,i)=>{
-    const vals=row.split(',').map(v=>v.trim().replace(/"/g,''));
-    const o={};headers.forEach((h,j)=>o[h]=vals[j]||'');
+    const vals=parseCSVRow(row);
+    const o={};headers.forEach((h,j)=>o[h]=(vals[j]||'').trim());
     const cal=activeCals[i%activeCals.length];
-    const score=60+Math.floor(Math.random()*35);
     const name=o.name||o.first_name||o.customer_name||'Unknown';
-    const phone=o.phone||o.mobile||o.glusr_usr_ph_mobile||'';
+    const phone=o.mobile||o.phone||o.glusr_usr_ph_mobile||'';
     const pin=o.pin||o.pincode||o.zip||'—';
-    return{id:Date.now()+i,name,company:o.company||o.company_name||'',designation:o.designation||'',email:o.email||o.email1||'',phone,pin,city:o.city||'',score,eligibility:score>=80?'High':score>=60?'Moderate':'Low',loan:score>=80?'Business / MSME Loan':'Personal Loan',callerId:cal?cal.id:'',status:'Not Called',comments:'',callHistory:[],enriched:false,aiInsight:'',uploadedAt,lastCalledAt:null,callCount:0,lastWaAt:null,waCount:0};
+    const city=o.location||o.city||o.town||'';
+    const leadType=o.lead_type||'';
+    const sourceSheet=o.source_sheet||o.source||'';
+    const remarks=o.remarks||o.comments||'';
+    const statusRaw=(o.status||'').toLowerCase();
+    const status=STATUSES.includes(o.status)?o.status:(STATUS_IMPORT_MAP[statusRaw]||'Not Called');
+    const rawScore=o.final_score_0_100||o.final_score||o.score||'';
+    const score=rawScore!==''&&!isNaN(parseInt(rawScore,10))?Math.min(100,Math.max(0,parseInt(rawScore,10))):60+Math.floor(Math.random()*35);
+    const aiStatus=(o.ai_analysis_status||'').toLowerCase();
+    const enriched=aiStatus==='done'||aiStatus==='complete';
+    const scoreDataQuality=pi(o.data_quality_20),scoreLocation=pi(o.location_score_20),scoreIncome=pi(o.income_score_20),scoreRepayment=pi(o.repayment_score_20),scoreProductFit=pi(o.product_fit_20);
+    const locationType=o.location_type||'',aiInsight=o.ai_reasoning||'',keyInsights=o.key_insights||'',districtNotes=o.district_notes||'',aiAnalysedAt=o.ai_analysed_at||'';
+    const customerProfile=o.customer_profile||'',incomeBand=o.income_band||'';
+    const monthlyIncome=pi(o.monthly_income||o.monthly_income_rs),maxLoan=pi(o.max_loan||o.max_loan_rs),maxEmi=pi(o.max_emi||o.max_emi_rs),loanTenure=pi(o.loan_tenure_months),recLoan=pi(o.rec_loan||o.rec_loan_rs),recEmi=pi(o.rec_emi||o.rec_emi_rs),foirPct=pi(o.foir);
+    const recommendedProduct=o.recommended_product||'';
+    const callerTip=o.call_script||o.caller_tip||'';
+    const calledAt=o.called_at||'',calledBy=o.called_by||'';
+    const scoreBreakdownJson=o.score_breakdown_json||'',riskFlagsJson=o.risk_flags_json||'';
+    const eligibility=score>=80?'High':score>=60?'Moderate':'Low';
+    const loan=recommendedProduct||(score>=80?'Business / MSME Loan':'Personal Loan');
+    const loanRange=maxLoan?'₹'+(maxLoan>=100000?(maxLoan/100000).toFixed(1)+'L':maxLoan.toLocaleString('en-IN')):o.loan_range||'';
+    const priority=score>=70?'High':score>=45?'Medium':'Low';
+    const callHistory=[];
+    if(calledAt||calledBy) callHistory.push({date:calledAt?calledAt.split(' ')[0]:today(),ts:calledAt?new Date(calledAt).getTime()||Date.now():Date.now(),caller:calledBy||'Imported',status,comment:'Imported call record'});
+    return{id:Date.now()+i,name,phone,pin,city,
+      company:o.company||o.company_name||'',
+      designation:customerProfile||o.designation||'',
+      email:o.email||o.email1||'',
+      score,eligibility,loan,loanRange,priority,
+      callerId:cal?cal.id:'',status,comments:remarks,
+      callHistory,enriched,aiInsight,callerTip,
+      uploadedAt,lastCalledAt:callHistory.length?callHistory[0].ts:null,
+      callCount:callHistory.length,lastWaAt:null,waCount:0,totalCallSecs:0,
+      leadType,sourceSheet,locationType,keyInsights,districtNotes,aiAnalysedAt,
+      customerProfile,incomeBand,monthlyIncome,maxLoan,maxEmi,loanTenure,
+      recLoan,recEmi,foirPct,
+      scoreDataQuality,scoreLocation,scoreIncome,scoreRepayment,scoreProductFit,
+      scoreBreakdownJson,riskFlagsJson};
   });
   if(!newC.length){msg.innerHTML='<span style="color:var(--red)">✗ No valid rows found.</span>';return;}
   _checkAndShowBackupModal(newC,msg);
@@ -2038,66 +2154,119 @@ function _refreshCallerStats(){
   _updateCallerChips(base);
 }
 
+function _renderKeyInsights(val){
+  if(!val) return '';
+  let items=[];
+  try{
+    const parsed=JSON.parse(val);
+    if(Array.isArray(parsed)) items=parsed.map(s=>String(s).trim()).filter(Boolean);
+    else if(typeof parsed==='object') items=Object.values(parsed).map(s=>String(s).trim()).filter(Boolean);
+    else items=[String(parsed).trim()];
+  }catch(e){
+    // not JSON — try comma-split or treat as plain text
+    items=val.includes(',')?val.split(',').map(s=>s.trim()).filter(Boolean):[val.trim()];
+  }
+  if(!items.length) return '';
+  return`<div style="display:flex;flex-wrap:wrap;gap:5px">${items.map(t=>`<span style="display:inline-flex;align-items:center;gap:4px;background:#ede9fe;color:#5b4fcf;border:1px solid #c4b5fd;border-radius:99px;padding:3px 9px;font-size:11px;font-weight:600"><span style="width:5px;height:5px;border-radius:50%;background:#8b5cf6;flex-shrink:0"></span>${t}</span>`).join('')}</div>`;
+}
+
 function callerCard(c){
-  const [bg,fg]=ac(c.name);
-  const area=c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city;
   const phone=c.phone!=null?String(c.phone):'';
   const hasPhone=phone&&phone!=='—'&&phone.trim()!=='';
-  return`<div class="card caller-card-inner" id="cc-${c.id}" style="border-left:4px solid ${scoreColor(c.score)};margin-bottom:12px">
+  const area=c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city;
+  const sc=scoreColor(c.score);
+  const hasSubScores=c.scoreDataQuality!=null||c.scoreLocation!=null||c.scoreIncome!=null||c.scoreRepayment!=null||c.scoreProductFit!=null;
+  const hasAI=c.enriched||c.aiInsight||hasSubScores||c.keyInsights||c.callerTip;
 
-  <!-- HEADER ROW -->
-  <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
-    <div class="avatar" style="width:44px;height:44px;font-size:15px;background:${bg};color:${fg};border:2px solid var(--border)">${initials(c.name)}</div>
+  /* sub-score progress bar row helper */
+  const subBar=(label,key,color)=>{
+    const v=c[key];
+    if(v==null) return '';
+    const pct=Math.round((v/20)*100);
+    return`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <div style="font-size:11px;color:var(--text2);width:110px;flex-shrink:0">${label}</div>
+      <div style="flex:1;height:7px;background:#e4e4f0;border-radius:99px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${color};border-radius:99px;transition:width .4s"></div>
+      </div>
+      <div style="font-size:11px;font-weight:800;color:${color};width:34px;text-align:right;flex-shrink:0">${v} /20</div>
+    </div>`;
+  };
+
+  return`<div class="card caller-card-inner" id="cc-${c.id}" style="padding:0;overflow:hidden;margin-bottom:14px;border:none">
+
+  <!-- NAVY HEADER -->
+  <div style="background:var(--navy);padding:13px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+    <div style="min-width:0">
+      <div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
+      <div style="font-size:12px;color:rgba(255,255,255,.55);margin-top:1px">${hasPhone?phone:'No phone'} ${area?'· '+area:''}</div>
+      ${currentRole==='admin'?`<div style="font-size:10px;color:rgba(255,255,255,.4);margin-top:2px">${callerName(c.callerId)}</div>`:''}
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+      ${hasPhone?`<a href="tel:${phone}" class="btn-call-now" onclick="trackCall(${c.id},event)" style="padding:8px 16px;font-size:12px"><i class="ti ti-phone-call"></i> Call</a>`:''}
+      <button onclick="openProfile(${c.id})" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;padding:7px 12px;font-size:11px;border-radius:var(--rs)"><i class="ti ti-eye"></i></button>
+    </div>
+  </div>
+
+  <div style="padding:14px 16px">
+
+  <!-- SCORE BOX -->
+  <div style="background:${sc}12;border:1.5px solid ${sc}44;border-radius:var(--rs);padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;gap:16px">
+    <div style="text-align:center;flex-shrink:0">
+      <div style="font-size:38px;font-weight:900;color:${sc};line-height:1">${c.score}</div>
+      <div style="font-size:9px;font-weight:700;color:${sc};letter-spacing:.06em;margin-top:2px">/ 100</div>
+    </div>
     <div style="flex:1;min-width:0">
-      <div style="font-size:15px;font-weight:800;color:var(--navy)">${c.name}</div>
-      <div style="font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.company}</div>
-      <div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
-        <span style="font-size:12px;font-weight:800;color:${scoreColor(c.score)}">Score ${c.score}</span>
-        <span class="badge b-green">${c.eligibility}</span>
+      <div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.06em;margin-bottom:4px">CLAUDE AI SCORE</div>
+      <div class="prog-bg" style="height:8px;margin-bottom:6px"><div class="prog-f" style="width:${c.score}%;background:${sc}"></div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span class="badge ${c.eligibility==='High'?'b-green':c.eligibility==='Moderate'?'b-amber':'b-red'}" style="font-size:10px">${c.eligibility} Eligibility</span>
         <span class="badge b-gold" style="font-size:9px">${c.loan}</span>
-        ${currentRole==='admin'?`<span class="badge b-gray" style="font-size:9px">${callerName(c.callerId)}</span>`:''}
+        ${c.loanRange?`<span class="badge b-blue" style="font-size:9px">&#x1F4B0; ${c.loanRange}</span>`:''}
+        ${c.priority?`<span class="badge ${c.priority==='High'?'b-green':c.priority==='Medium'?'b-amber':'b-gray'}" style="font-size:9px">&#x26A1; ${c.priority}</span>`:''}
+        ${c.enriched&&c.aiProvider?`<span style="background:var(--navy);color:rgba(255,255,255,0.75);padding:1px 6px;border-radius:4px;font-size:9px">${c.aiProvider.toUpperCase()}</span>`:''}
       </div>
     </div>
-    <div style="text-align:right;flex-shrink:0">
-      <div style="font-size:11px;color:var(--text2)">${area}</div>
-      <div style="font-size:10px;color:var(--text2);margin-top:1px">${c.email||'—'}</div>
-    </div>
+    ${!c.enriched?`<button onclick="enrichOne(${c.id},this)" style="font-size:10px;padding:6px 10px;flex-shrink:0"><i class="ti ti-brain"></i> AI</button>`:''}
   </div>
 
-  <!-- CALL SECTION -->
-  <div style="background:var(--navy);border-radius:var(--rs);padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-    <div>
-      <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.5);letter-spacing:.08em;margin-bottom:3px">CUSTOMER PHONE</div>
-      <div style="font-size:18px;font-weight:800;color:var(--gold-l);letter-spacing:0.02em">${hasPhone?phone:'Not available'}</div>
+  <!-- FINANCIAL GRID -->
+  <div style="border:1px solid var(--border);border-radius:var(--rs);overflow:hidden;margin-bottom:12px">
+    <div style="background:var(--bg2);padding:6px 12px;font-size:9px;font-weight:700;color:var(--text2);letter-spacing:.07em;border-bottom:1px solid var(--border)">FINANCIAL PROFILE</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;padding:10px 12px;gap:10px 16px">
+      <div><div style="font-size:9px;color:var(--text2);margin-bottom:2px">PROFILE TYPE</div><div style="font-size:12px;font-weight:700">${c.customerProfile||c.designation||'—'}</div></div>
+      <div><div style="font-size:9px;color:var(--text2);margin-bottom:2px">INCOME BAND</div><div style="font-size:12px;font-weight:700">${c.incomeBand||'—'}</div></div>
+      <div><div style="font-size:9px;color:var(--text2);margin-bottom:2px">MAX LOAN</div><div style="font-size:12px;font-weight:700;color:var(--green)">${c.maxLoan?'₹'+c.maxLoan.toLocaleString('en-IN'):'—'}</div></div>
+      <div><div style="font-size:9px;color:var(--text2);margin-bottom:2px">MAX EMI / MO</div><div style="font-size:12px;font-weight:700">${c.maxEmi?'₹'+c.maxEmi.toLocaleString('en-IN'):'—'}</div></div>
+      <div><div style="font-size:9px;color:var(--text2);margin-bottom:2px">FOIR ESTIMATE</div><div style="font-size:12px;font-weight:700;color:${c.foirPct!=null?(c.foirPct<=40?'var(--green)':c.foirPct<=55?'#BA7517':'var(--red)'):'var(--text)'}">${c.foirPct!=null?c.foirPct+'%':'—'}</div></div>
+      <div><div style="font-size:9px;color:var(--text2);margin-bottom:2px">LEAD TYPE</div><div style="font-size:12px;font-weight:700">${c.leadType||'—'}</div></div>
     </div>
-    ${hasPhone?`<a href="tel:${phone}" class="btn-call-now" onclick="trackCall(${c.id},event)">
-      <i class="ti ti-phone-call"></i> Call Now
-    </a>`:`<span style="font-size:11px;color:rgba(255,255,255,0.4)">No phone on record</span>`}
-  </div>
-  <div class="call-notice">
-    <i class="ti ti-info-circle"></i>
-    Tap <strong style="margin:0 3px">Call Now</strong> to call directly from this app — no need to dial manually.
+    ${(c.monthlyIncome||c.recLoan||c.recEmi||c.loanTenure||c.recommendedProduct)?`<div style="border-top:1px solid var(--border);padding:8px 12px;display:flex;gap:12px;flex-wrap:wrap">
+      ${c.monthlyIncome?`<div><div style="font-size:9px;color:var(--text2)">Monthly Income</div><div style="font-size:11px;font-weight:700">₹${c.monthlyIncome.toLocaleString('en-IN')}</div></div>`:''}
+      ${c.recLoan?`<div><div style="font-size:9px;color:var(--text2)">Rec. Loan</div><div style="font-size:11px;font-weight:700;color:var(--blue)">₹${c.recLoan.toLocaleString('en-IN')}</div></div>`:''}
+      ${c.recEmi?`<div><div style="font-size:9px;color:var(--text2)">Rec. EMI</div><div style="font-size:11px;font-weight:700">₹${c.recEmi.toLocaleString('en-IN')}/mo</div></div>`:''}
+      ${c.loanTenure?`<div><div style="font-size:9px;color:var(--text2)">Tenure</div><div style="font-size:11px;font-weight:700">${c.loanTenure} mo</div></div>`:''}
+      ${c.recommendedProduct||c.loan?`<div><div style="font-size:9px;color:var(--text2)">Product</div><div style="font-size:11px;font-weight:700">${c.recommendedProduct||c.loan}</div></div>`:''}
+    </div>`:''}
   </div>
 
-  <!-- AI ANALYSIS -->
-  <div class="ai-box" style="margin-bottom:10px">
-    <div style="font-size:10px;font-weight:700;color:var(--gold);margin-bottom:8px;letter-spacing:.06em">AI ANALYSIS ${c.enriched&&c.aiProvider?`<span style="background:var(--navy);color:rgba(255,255,255,0.7);padding:1px 6px;border-radius:4px;font-size:9px;margin-left:4px">${c.aiProvider.toUpperCase()}</span>`:''}</div>
-    ${c.enriched&&c.aiInsight
-      ?`<div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-            <div class="prog-bg" style="flex:1;height:8px"><div class="prog-f" style="width:${c.score}%;background:${scoreColor(c.score)}"></div></div>
-            <span style="font-size:13px;font-weight:800;color:${scoreColor(c.score)}">${c.score}</span>
-            <span class="badge ${c.eligibility==='High'?'b-green':c.eligibility==='Moderate'?'b-amber':'b-red'}">${c.eligibility}</span>
-          </div>
-          <div style="font-size:12px;line-height:1.75;color:var(--text);margin-bottom:8px">${c.aiInsight}</div>
-          ${c.loanRange||c.priority?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-            ${c.loanRange?`<span class="badge b-blue" style="font-size:10px">&#x1F4B0; ${c.loanRange}</span>`:''}
-            ${c.priority?`<span class="badge ${c.priority==='High'?'b-green':c.priority==='Medium'?'b-amber':'b-gray'}" style="font-size:10px">&#x26A1; ${c.priority} Priority</span>`:''}
-          </div>`:''}
-          ${c.callerTip?`<div style="background:var(--navy);color:#fff;border-radius:var(--rs);padding:10px 12px;font-size:12px;line-height:1.6"><span style="font-size:9px;font-weight:700;opacity:.65;letter-spacing:.07em;display:block;margin-bottom:3px">CALLER TIP</span>${c.callerTip}</div>`:''}
-        </div>`
-      :`<div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;color:var(--text2)">Not enriched yet</span><button onclick="enrichOne(${c.id},this)" style="font-size:11px;padding:5px 10px"><i class="ti ti-brain"></i> Generate</button></div>`}
-  </div>
+  <!-- CLAUDE AI BREAKDOWN -->
+  ${hasAI?`<div style="background:#f2f1fd;border:1px solid #dbd8fb;border-radius:var(--rs);padding:12px 14px;margin-bottom:12px">
+    <div style="font-size:10px;font-weight:700;color:#5b4fcf;letter-spacing:.06em;margin-bottom:10px">&#x2728; CLAUDE AI BREAKDOWN</div>
+    ${hasSubScores?`<div style="margin-bottom:10px">
+      ${subBar('Location Credit',   'scoreLocation',   '#3b82f6')}
+      ${subBar('Income Capacity',   'scoreIncome',     '#14b8a6')}
+      ${subBar('Repayment Prob.',   'scoreRepayment',  '#f97316')}
+      ${subBar('Product Fit',       'scoreProductFit', '#8b5cf6')}
+      ${subBar('Data Quality',      'scoreDataQuality','#94a3b8')}
+    </div>`:''}
+    ${c.aiInsight?`<div style="font-size:12px;line-height:1.75;color:var(--text);font-style:italic;padding-top:${hasSubScores?'8px':'0'};${hasSubScores?'border-top:1px solid #dbd8fb':''}">${c.aiInsight}</div>`:''}
+    ${c.keyInsights?`<div style="margin-top:8px;padding-top:8px;border-top:1px solid #dbd8fb"><div style="font-size:9px;font-weight:700;color:#5b4fcf;letter-spacing:.06em;margin-bottom:6px">KEY INSIGHTS</div>${_renderKeyInsights(c.keyInsights)}</div>`:''}
+    ${c.districtNotes?`<div style="margin-top:8px;padding-top:8px;border-top:1px solid #dbd8fb"><div style="font-size:9px;font-weight:700;color:#5b4fcf;letter-spacing:.06em;margin-bottom:4px">DISTRICT NOTES</div><div style="font-size:11px;color:var(--text2);line-height:1.65">${c.districtNotes}</div></div>`:''}
+    ${c.callerTip?`<div style="margin-top:8px;padding-top:8px;border-top:1px solid #dbd8fb"><div style="font-size:9px;font-weight:700;color:#5b4fcf;letter-spacing:.06em;margin-bottom:4px">CALL SCRIPT</div><div style="font-size:11px;color:var(--text);line-height:1.65">${c.callerTip}</div></div>`:''}
+  </div>`:`<div style="background:var(--bg2);border:1px dashed var(--border);border-radius:var(--rs);padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+    <span style="font-size:12px;color:var(--text2)">Not yet AI-analysed</span>
+    <button onclick="enrichOne(${c.id},this)" style="font-size:11px;padding:5px 10px"><i class="ti ti-brain"></i> Generate</button>
+  </div>`}
 
   <!-- STATUS + CALLBACK -->
   <div class="g2" style="margin-bottom:10px">
@@ -2128,7 +2297,6 @@ function callerCard(c){
   <!-- ACTIONS -->
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
     <button class="primary" onclick="saveCall(${c.id})"><i class="ti ti-device-floppy"></i> Save</button>
-    <button onclick="openProfile(${c.id})"><i class="ti ti-eye"></i> Profile</button>
     ${hasPhone?`<a href="tel:${phone}" class="btn-call-now" style="font-size:12px;padding:7px 14px" onclick="trackCall(${c.id},event)"><i class="ti ti-phone"></i> ${phone}</a>`:''}
     <button onclick="event.stopPropagation();waShare(${c.id})" style="background:#25D366;color:#fff;border-color:#25D366;font-size:12px;padding:7px 12px" title="Share via WhatsApp"><i class="ti ti-brand-whatsapp"></i> Share</button>
     ${c.callHistory.length?`<span class="badge b-gray">${c.callHistory.length} call${c.callHistory.length>1?'s':''}</span>`:''}
@@ -2144,6 +2312,8 @@ function callerCard(c){
       <span style="color:var(--text2)">${h.comment}</span>
     </div>`).join('')}
   </div>`:''}
+
+  </div><!-- end padding -->
 </div>`;
 }
 
@@ -2227,7 +2397,7 @@ function saveCall(id){
   _callTimer.durSavedToHistory=false; // reset flag
   save();
   _refreshCallerStats();
-  filterCallerCards();
+  _doRenderCallerCards();
   // Bust the drill-down cache for this caller so re-opening shows the new entry
   const calPanel=document.getElementById('drill-panel-'+c.callerId);
   if(calPanel) delete calPanel.dataset.rendered;
@@ -2802,7 +2972,7 @@ function renderBackup(){
     <i class="ti ti-cloud-upload" style="font-size:32px;color:#bbb;display:block;margin-bottom:8px"></i>
     <div style="font-weight:600;margin-bottom:4px">Drop CSV or Excel file here, or click to upload</div>
     <div style="font-size:11px;margin-bottom:6px">Supports: <span class="badge b-green" style="font-size:9px">CSV</span> <span class="badge b-blue" style="font-size:9px">XLSX</span> <span class="badge b-amber" style="font-size:9px">XLS</span></div>
-    <div style="font-size:11px;color:var(--text2)">Columns: name, company, designation, email, phone, pin, city</div>
+    <div style="font-size:11px;color:var(--text2)">New format: Name, Mobile, Location, Lead Type, Status, Final Score, AI Reasoning… (37 cols) · Old format: name, company, phone, city also supported</div>
   </div>
   <input type="file" id="bk-file-up" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleUploadBk(this)">
   <div id="bk-upload-msg" style="font-size:12px;color:var(--text2);margin-top:8px"></div>
@@ -2927,32 +3097,53 @@ function _exportBackupExcel(){
   if(!list.length){showToast('No customers match the selected filter','#A32D2D');return;}
   const label=selStatuses.length?selStatuses.join(', '):'All statuses';
   try{
-    const xs=v=>{
-      if(v==null) return '';
-      if(typeof v==='object') return '';
-      return String(v).replace(/[\x00-\x1F\x7F]/g,' ').trim();
-    };
-    const hdr=['#','Name','Company','Designation','Phone','Email','Area','PIN',
-      'Score','Eligibility','Loan Type','Status','Caller','Comments',
-      'Last Call','Call Logs','Talk Time','AI Analysis','Caller Tip'];
-    const rows=list.map((c,i)=>{
+    const xs=v=>{if(v==null)return '';if(typeof v==='object')return '';return String(v).replace(/[\x00-\x1F\x7F]/g,' ').trim();};
+    const xi=v=>{const n=parseInt(v,10);return isNaN(n)?'':n;};
+    const hdr=[
+      'ID','Name','Mobile','Location',
+      'Lead Type','Status','Imported At','Source Sheet','Remarks',
+      'Final Score (0-100)','Grade','AI Analysis Status',
+      'Data Quality /20','Location Score /20','Income Score /20','Repayment Score /20','Product Fit /20',
+      'Location Type','AI Reasoning','Key Insights','District Notes','AI Analysed At',
+      'Customer Profile','Income Band','Monthly Income','Max Loan','Max EMI',
+      'Loan Tenure (Months)','Recommended Product','Rec. Loan','Rec. EMI','FOIR %',
+      'Call Script','Called At','Called By',
+      'Score Breakdown (JSON)','Risk Flags (JSON)'
+    ];
+    const rows=list.map(c=>{
       const hist=c.callHistory||[];
-      const pin=xs(c.pin);
-      const area=pin&&pin!=='—'?(PIN_MAP[pin]||xs(c.city)):xs(c.city);
       const last=hist.length?hist[hist.length-1]:null;
-      return [
-        xs(i+1), xs(c.name), xs(c.company), xs(c.designation),
-        xs(c.phone), xs(c.email), xs(area), pin!=='—'?pin:'',
-        xs(c.score), xs(c.eligibility), xs(c.loan), xs(c.status),
-        xs(callerName(c.callerId)), xs(c.comments),
-        last?xs(last.date):'', xs(hist.length),
-        xs(_fmtDuration(c.totalCallSecs||0)),
-        xs(c.aiInsight).slice(0,500), xs(c.callerTip).slice(0,200),
+      const exportStatus=STATUS_EXPORT_MAP[c.status]||xs(c.status);
+      const aiStatus=c.enriched?'Done':(c.aiInsight?'Done':'Not Run');
+      return[
+        xs(c.id), xs(c.name), xs(c.phone), xs(c.city||''),
+        xs(c.leadType||''), exportStatus,
+        c.uploadedAt?new Date(c.uploadedAt).toISOString().replace('T',' ').slice(0,16):'',
+        xs(c.sourceSheet||''), xs(c.comments||''),
+        xi(c.score), computeGrade(c.score||0), aiStatus,
+        xi(c.scoreDataQuality), xi(c.scoreLocation), xi(c.scoreIncome), xi(c.scoreRepayment), xi(c.scoreProductFit),
+        xs(c.locationType||''), xs(c.aiInsight||'').slice(0,1000), xs(c.keyInsights||'').slice(0,500),
+        xs(c.districtNotes||''), xs(c.aiAnalysedAt||''),
+        xs(c.customerProfile||c.designation||''), xs(c.incomeBand||''),
+        xi(c.monthlyIncome), xi(c.maxLoan), xi(c.maxEmi),
+        xi(c.loanTenure), xs(c.loan||''), xi(c.recLoan), xi(c.recEmi), xi(c.foirPct),
+        xs(c.callerTip||'').slice(0,500),
+        last?xs(last.date):'', last?xs(last.caller):'',
+        xs(c.scoreBreakdownJson||''), xs(c.riskFlagsJson||'')
       ];
     });
     const ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
-    ws['!cols']=[{wch:4},{wch:22},{wch:28},{wch:18},{wch:14},{wch:28},{wch:16},{wch:8},
-      {wch:7},{wch:12},{wch:16},{wch:16},{wch:14},{wch:30},{wch:12},{wch:10},{wch:12},{wch:45},{wch:30}];
+    ws['!cols']=[
+      {wch:8},{wch:22},{wch:14},{wch:16},
+      {wch:12},{wch:16},{wch:17},{wch:14},{wch:25},
+      {wch:12},{wch:6},{wch:14},
+      {wch:12},{wch:12},{wch:12},{wch:14},{wch:12},
+      {wch:14},{wch:45},{wch:40},{wch:30},{wch:17},
+      {wch:16},{wch:18},{wch:14},{wch:12},{wch:12},
+      {wch:14},{wch:20},{wch:12},{wch:12},{wch:8},
+      {wch:45},{wch:17},{wch:14},
+      {wch:40},{wch:40}
+    ];
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Customers');
     const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
@@ -3489,7 +3680,16 @@ function openProfile(id){
   <div>
     <div class="card">
       <div class="card-title">Contact details</div>
-      ${[['ti-phone','Phone',`<a href="tel:${c.phone}" style="color:var(--blue);text-decoration:none;font-weight:700" onclick="trackCall(${c.id},event)">${c.phone}</a>`],['ti-mail','Email',c.email],['ti-map-pin','Area',area+(c.pin!=='—'?' ('+c.pin+')':'')],['ti-building','Sector',SECTOR_MAP[c.company]||'—'],['ti-user','Assigned to',callerName(c.callerId)]].map(([ic,lbl,val])=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f5f5f5;font-size:13px"><span style="color:var(--text2);display:flex;align-items:center;gap:5px"><i class="ti ${ic}"></i>${lbl}</span><span style="font-weight:600;text-align:right">${val}</span></div>`).join('')}
+      ${[
+        ['ti-phone','Phone',`<a href="tel:${c.phone}" style="color:var(--blue);text-decoration:none;font-weight:700" onclick="trackCall(${c.id},event)">${c.phone}</a>`],
+        ['ti-mail','Email',c.email||'—'],
+        ['ti-map-pin','Area',area+(c.pin!=='—'?' ('+c.pin+')':'')],
+        ['ti-building','Sector',SECTOR_MAP[c.company]||'—'],
+        ['ti-user','Assigned to',callerName(c.callerId)],
+        ...(c.leadType?[['ti-tag','Lead Type',c.leadType]]:[]),
+        ...(c.sourceSheet?[['ti-table','Source Sheet',c.sourceSheet]]:[]),
+        ...(c.locationType?[['ti-map','Location Type',c.locationType]]:[]),
+      ].map(([ic,lbl,val])=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f5f5f5;font-size:13px"><span style="color:var(--text2);display:flex;align-items:center;gap:5px"><i class="ti ${ic}"></i>${lbl}</span><span style="font-weight:600;text-align:right">${val}</span></div>`).join('')}
       ${currentRole==='admin'?`<div style="padding-top:10px;margin-top:4px"><label style="font-size:11px;font-weight:700;color:var(--text2);display:block;margin-bottom:5px">REASSIGN TO</label><div style="display:flex;gap:6px"><select id="reassign-sel" style="font-size:12px">${callers.filter(x=>x.active).map(cal=>`<option value="${cal.id}"${cal.id===c.callerId?' selected':''}>${cal.name}</option>`).join('')}</select><button onclick="reassign(${c.id})" style="white-space:nowrap;font-size:11px"><i class="ti ti-arrows-exchange"></i></button></div></div>`:''}
     </div>
     ${currentRole!=='admin'||true?`
@@ -3507,6 +3707,26 @@ function openProfile(id){
       <button onclick="enrichProfileNow(${c.id})" style="margin-top:8px;font-size:11px"><i class="ti ti-refresh"></i> Regenerate analysis</button>
     </div>
   </div>
+</div>
+
+<div class="card">
+  <div class="card-title"><i class="ti ti-chart-pie" style="font-size:13px"></i> Financial Profile</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px">
+    <div><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.05em">PROFILE TYPE</div><div style="font-size:14px;font-weight:700;margin-top:2px">${c.customerProfile||c.designation||'—'}</div></div>
+    <div><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.05em">INCOME BAND</div><div style="font-size:14px;font-weight:700;margin-top:2px">${c.incomeBand||'—'}</div></div>
+    <div><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.05em">MONTHLY INCOME</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:${c.monthlyIncome?'var(--green)':'var(--text2)'}">${c.monthlyIncome?'₹'+c.monthlyIncome.toLocaleString('en-IN'):'—'}</div></div>
+    <div><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.05em">MAX LOAN</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:${c.maxLoan?'var(--blue)':'var(--text2)'}">${c.maxLoan?'₹'+c.maxLoan.toLocaleString('en-IN'):'—'}</div></div>
+    <div><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.05em">MAX EMI / MO</div><div style="font-size:14px;font-weight:700;margin-top:2px">${c.maxEmi?'₹'+c.maxEmi.toLocaleString('en-IN'):'—'}</div></div>
+    <div><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.05em">TENURE</div><div style="font-size:14px;font-weight:700;margin-top:2px">${c.loanTenure?c.loanTenure+' months':'—'}</div></div>
+    <div><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.05em">REC. LOAN</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:${c.recLoan?'var(--blue)':'var(--text2)'}">${c.recLoan?'₹'+c.recLoan.toLocaleString('en-IN'):'—'}</div></div>
+    <div><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.05em">REC. EMI / MO</div><div style="font-size:14px;font-weight:700;margin-top:2px">${c.recEmi?'₹'+c.recEmi.toLocaleString('en-IN'):'—'}</div></div>
+    <div><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.05em">FOIR %</div><div style="font-size:14px;font-weight:700;margin-top:2px;color:${c.foirPct!=null?(c.foirPct<=40?'var(--green)':c.foirPct<=55?'#EF9F27':'var(--red)'):'var(--text2)'}">${c.foirPct!=null?c.foirPct+'%':'—'}</div></div>
+  </div>
+  ${c.leadType||c.sourceSheet||c.locationType?`<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);display:flex;gap:20px;flex-wrap:wrap">
+    ${c.leadType?`<div><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.05em">LEAD TYPE</div><div style="font-size:13px;font-weight:700;margin-top:2px">${c.leadType}</div></div>`:''}
+    ${c.sourceSheet?`<div><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.05em">SOURCE SHEET</div><div style="font-size:13px;font-weight:700;margin-top:2px">${c.sourceSheet}</div></div>`:''}
+    ${c.locationType?`<div><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.05em">LOCATION TYPE</div><div style="font-size:13px;font-weight:700;margin-top:2px">${c.locationType}</div></div>`:''}
+  </div>`:''}
 </div>
 
 ${c.callHistory.length?`
@@ -3538,19 +3758,29 @@ function saveFromProfile(id){
 }
 
 function _profileInsightHTML(c){
-  if(!c.enriched||!c.aiInsight) return `<div class="ai-box">Not yet enriched.</div>`;
+  const hasSubScores=c.scoreDataQuality!=null||c.scoreLocation!=null||c.scoreIncome!=null||c.scoreRepayment!=null||c.scoreProductFit!=null;
+  if(!c.enriched&&!c.aiInsight&&!hasSubScores&&!c.keyInsights&&!c.callerTip) return `<div class="ai-box">Not yet enriched. <button onclick="enrichProfileNow(${c.id})" style="font-size:11px;padding:4px 10px;margin-left:6px"><i class="ti ti-brain"></i> Generate</button></div>`;
   return `<div style="margin-bottom:12px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
       <div class="prog-bg" style="flex:1;height:10px"><div class="prog-f" style="width:${c.score}%;background:${scoreColor(c.score)}"></div></div>
       <span style="font-size:18px;font-weight:900;color:${scoreColor(c.score)}">${c.score}</span>
+      <span style="font-size:13px;font-weight:800;padding:2px 7px;border-radius:5px;background:${scoreColor(c.score)}22;color:${scoreColor(c.score)}">Grade ${computeGrade(c.score)}</span>
       <span class="badge ${c.eligibility==='High'?'b-green':c.eligibility==='Moderate'?'b-amber':'b-red'}" style="font-size:11px">${c.eligibility} eligibility</span>
     </div>
-    <div class="ai-box" style="margin-bottom:12px;font-size:13px;line-height:1.75">${c.aiInsight}</div>
+    ${hasSubScores?`<div style="background:var(--navy);border-radius:var(--rs);padding:12px 14px;margin-bottom:12px">
+      <div style="font-size:9px;font-weight:700;color:rgba(255,255,255,.5);letter-spacing:.07em;margin-bottom:8px">CLAUDE AI SUB-SCORES (each /20)</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${[['Data Quality','scoreDataQuality'],['Location','scoreLocation'],['Income','scoreIncome'],['Repayment','scoreRepayment'],['Product Fit','scoreProductFit']].map(([lbl,key])=>c[key]!=null?`<div style="text-align:center;background:rgba(255,255,255,.08);border-radius:6px;padding:6px 10px;min-width:56px"><div style="font-size:16px;font-weight:800;color:${c[key]>=15?'#7EE083':c[key]>=10?'#FFC966':'#FF8A8A'}">${c[key]}</div><div style="font-size:9px;color:rgba(255,255,255,.5);margin-top:2px">${lbl}</div></div>`:'').join('')}
+      </div>
+    </div>`:''}
+    ${c.aiInsight?`<div class="ai-box" style="margin-bottom:12px;font-size:13px;line-height:1.75">${c.aiInsight}</div>`:''}
     ${c.loanRange||c.priority?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
       ${c.loanRange?`<div style="flex:1;min-width:130px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:10px 12px"><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.06em;margin-bottom:3px">RECOMMENDED LOAN</div><div style="font-size:14px;font-weight:800;color:var(--blue)">${c.loanRange}</div></div>`:''}
       ${c.priority?`<div style="flex:1;min-width:100px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:10px 12px"><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.06em;margin-bottom:3px">CALL PRIORITY</div><div style="font-size:14px;font-weight:800;color:${c.priority==='High'?'var(--green)':c.priority==='Medium'?'#EF9F27':'var(--text2)'}">${c.priority}</div></div>`:''}
     </div>`:''}
-    ${c.callerTip?`<div style="background:var(--navy);color:#fff;border-radius:var(--rs);padding:12px 14px"><div style="font-size:9px;font-weight:700;opacity:.65;letter-spacing:.08em;margin-bottom:5px">CALLER TIP</div><div style="font-size:13px;line-height:1.65">${c.callerTip}</div></div>`:''}
+    ${c.keyInsights?`<div style="background:var(--blue-l);border:1px solid #c0d9ef;border-radius:var(--rs);padding:12px 14px;margin-bottom:12px"><div style="font-size:10px;font-weight:700;color:var(--navy);letter-spacing:.06em;margin-bottom:8px">KEY INSIGHTS</div>${_renderKeyInsights(c.keyInsights)}</div>`:''}
+    ${c.districtNotes?`<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:10px 14px;margin-bottom:12px"><div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.06em;margin-bottom:4px">DISTRICT NOTES</div><div style="font-size:12px;line-height:1.6;color:var(--text2)">${c.districtNotes}</div></div>`:''}
+    ${c.callerTip?`<div style="background:var(--navy);color:#fff;border-radius:var(--rs);padding:12px 14px"><div style="font-size:9px;font-weight:700;opacity:.65;letter-spacing:.08em;margin-bottom:5px">CALLER TIP / CALL SCRIPT</div><div style="font-size:13px;line-height:1.65">${c.callerTip}</div></div>`:''}
   </div>`;
 }
 
@@ -3651,43 +3881,62 @@ function exportExcel(){
   if(!window.XLSX){showToast('Excel library not loaded — check internet connection and reload','#A32D2D');return;}
   const list=_getFilteredList();
   if(!list.length){showToast('No records match current filters','#A32D2D');return;}
-  // Safe coercions — everything ends up as a plain string (no numbers passed to XLSX)
-  const xs=v=>{
-    if(v==null) return '';
-    if(typeof v==='object') return '';   // drop any object/array that slipped in
-    return String(v).replace(/[\x00-\x1F\x7F]/g,' ').trim();
-  };
-  const hdr=['#','Name','Company','Designation','Phone','Email','Area','PIN',
-    'Score','Eligibility','Loan Type','Loan Range','Priority','Status','Caller',
-    'Comments','Last Call','Call Logs','Talk Time','AI Analysis','Caller Tip'];
+  const xs=v=>{if(v==null)return '';if(typeof v==='object')return '';return String(v).replace(/[\x00-\x1F\x7F]/g,' ').trim();};
+  const xi=v=>{const n=parseInt(v,10);return isNaN(n)?'':n;};
+  // 37-column header matching DOWNLOAD_FILE_FORMAT.md
+  const hdr=[
+    'ID','Name','Mobile','Location',
+    'Lead Type','Status','Imported At','Source Sheet','Remarks',
+    'Final Score (0-100)','Grade','AI Analysis Status',
+    'Data Quality /20','Location Score /20','Income Score /20','Repayment Score /20','Product Fit /20',
+    'Location Type','AI Reasoning','Key Insights','District Notes','AI Analysed At',
+    'Customer Profile','Income Band','Monthly Income','Max Loan','Max EMI',
+    'Loan Tenure (Months)','Recommended Product','Rec. Loan','Rec. EMI','FOIR %',
+    'Call Script','Called At','Called By',
+    'Score Breakdown (JSON)','Risk Flags (JSON)'
+  ];
   let rows;
   try{
-    rows=list.map((c,i)=>{
+    rows=list.map(c=>{
       const hist=c.callHistory||[];
-      const pin=xs(c.pin);
-      const area=pin&&pin!=='—'?(PIN_MAP[pin]||xs(c.city)):xs(c.city);
       const last=hist.length?hist[hist.length-1]:null;
-      return [
-        xs(i+1), xs(c.name), xs(c.company), xs(c.designation),
-        xs(c.phone), xs(c.email), xs(area), pin!=='—'?pin:'',
-        xs(c.score), xs(c.eligibility), xs(c.loan), xs(c.loanRange),
-        xs(c.priority), xs(c.status), xs(callerName(c.callerId)), xs(c.comments),
-        last?xs(last.date):'', xs(hist.length),
-        xs(_fmtDuration(c.totalCallSecs||0)),
-        xs(c.aiInsight).slice(0,500), xs(c.callerTip).slice(0,200),
+      const exportStatus=STATUS_EXPORT_MAP[c.status]||xs(c.status);
+      const aiStatus=c.enriched?'Done':(c.aiInsight?'Done':'Not Run');
+      return[
+        xs(c.id), xs(c.name), xs(c.phone), xs(c.city||c.location||''),
+        xs(c.leadType||''), exportStatus,
+        c.uploadedAt?new Date(c.uploadedAt).toISOString().replace('T',' ').slice(0,16):'',
+        xs(c.sourceSheet||''), xs(c.comments||''),
+        xi(c.score), computeGrade(c.score||0), aiStatus,
+        xi(c.scoreDataQuality), xi(c.scoreLocation), xi(c.scoreIncome), xi(c.scoreRepayment), xi(c.scoreProductFit),
+        xs(c.locationType||''), xs(c.aiInsight||'').slice(0,1000), xs(c.keyInsights||'').slice(0,500),
+        xs(c.districtNotes||''), xs(c.aiAnalysedAt||''),
+        xs(c.customerProfile||c.designation||''), xs(c.incomeBand||''),
+        xi(c.monthlyIncome), xi(c.maxLoan), xi(c.maxEmi),
+        xi(c.loanTenure), xs(c.loan||''), xi(c.recLoan), xi(c.recEmi), xi(c.foirPct),
+        xs(c.callerTip||'').slice(0,500),
+        last?xs(last.date):'', last?xs(last.caller):'',
+        xs(c.scoreBreakdownJson||''), xs(c.riskFlagsJson||'')
       ];
     });
   }catch(e){showToast('Export failed (data prep): '+e.message,'#A32D2D');console.error(e);return;}
   let ws;
+  try{ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);}
+  catch(e){showToast('Export failed (build sheet): '+e.message,'#A32D2D');console.error(e);return;}
   try{
-    ws=XLSX.utils.aoa_to_sheet([hdr,...rows]);
-  }catch(e){showToast('Export failed (build sheet): '+e.message,'#A32D2D');console.error(e);return;}
-  try{
-    ws['!cols']=[{wch:4},{wch:22},{wch:28},{wch:18},{wch:14},{wch:28},{wch:16},{wch:8},
-      {wch:7},{wch:12},{wch:14},{wch:12},{wch:10},{wch:16},{wch:14},{wch:30},{wch:12},{wch:10},{wch:12},{wch:45},{wch:30}];
+    ws['!cols']=[
+      {wch:8},{wch:22},{wch:14},{wch:16},
+      {wch:12},{wch:16},{wch:17},{wch:14},{wch:25},
+      {wch:12},{wch:6},{wch:14},
+      {wch:12},{wch:12},{wch:12},{wch:14},{wch:12},
+      {wch:14},{wch:45},{wch:40},{wch:30},{wch:17},
+      {wch:16},{wch:18},{wch:14},{wch:12},{wch:12},
+      {wch:14},{wch:20},{wch:12},{wch:12},{wch:8},
+      {wch:45},{wch:17},{wch:14},
+      {wch:40},{wch:40}
+    ];
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Customers');
-    // Use Blob download instead of XLSX.writeFile (more reliable in single-page apps)
     const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
     const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     const url=URL.createObjectURL(blob);
@@ -3695,7 +3944,7 @@ function exportExcel(){
     a.href=url; a.download='SNS_LoanIQ_'+today()+'.xlsx';
     document.body.appendChild(a); a.click();
     document.body.removeChild(a); URL.revokeObjectURL(url);
-    showToast('✓ Excel exported — '+list.length+' records');
+    showToast('✓ Excel exported — '+list.length+' records · 37 columns');
   }catch(e){showToast('Export failed (write file): '+e.message,'#A32D2D');console.error(e);}
 }
 
