@@ -1,3 +1,4 @@
+
 # SNS LoanIQ CRM — Azure + Google Sheets Deployment
 
 Cloud-synced CRM that **lives in Google Sheets** (zero-cost backend) and **runs as a static site on Azure Static Web Apps** (free tier).
