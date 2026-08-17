@@ -4,7 +4,13 @@
       "Bash(python -c ' *)",
       "Bash(python replace_export.py)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(npx --version)",
+      "Bash(npx playwright *)",
+      "Bash(node test_showmore.js)",
+      "Bash(npm init *)",
+      "Bash(node -e ' *)",
+      "Bash(node test_busyguard.js)"
     ]
   }
 }

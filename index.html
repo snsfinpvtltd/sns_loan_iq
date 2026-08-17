@@ -995,7 +995,7 @@ function trackCall(id,event){
   setTimeout(()=>{
     if(typeof _renderAdminTable==='function') _renderAdminTable();
     if(typeof _refreshCallerStats==='function') _refreshCallerStats();
-    if(typeof _doRenderCallerCards==='function') _doRenderCallerCards();
+    if(typeof _safeRenderCallerCards==='function') _safeRenderCallerCards();
   },50);
   return true;
 }
@@ -2092,6 +2092,40 @@ const _CALLER_PAGE_SIZE=50;
 function filterCallerCards(){_callerPage=1;_doRenderCallerCards();}
 function callerLoadMore(){_callerPage++;_doRenderCallerCards();}
 
+// Auto-load more cards on scroll (backs up the "Show more" button in case
+// it's ever unreachable/untappable on a particular device).
+let _callerLoadObserver=null;
+function _observeCallerLoadSentinel(){
+  const sentinel=document.getElementById('caller-load-sentinel');
+  if(!sentinel||typeof IntersectionObserver==='undefined') return;
+  if(!_callerLoadObserver){
+    _callerLoadObserver=new IntersectionObserver(entries=>{
+      entries.forEach(e=>{ if(e.isIntersecting) callerLoadMore(); });
+    },{rootMargin:'400px'});
+  }
+  _callerLoadObserver.observe(sentinel);
+}
+
+// Don't let a background re-render (cloud poll, status save, etc.) tear
+// down #caller-cards while a finger/pointer is still down on it — that
+// destroys the tapped element before its click fires, so the tap silently
+// does nothing. Defer the re-render until the gesture finishes instead.
+let _callerCardsBusy=false,_callerCardsPendingSync=false;
+document.addEventListener('pointerdown',e=>{
+  if(e.target.closest&&e.target.closest('#caller-cards')) _callerCardsBusy=true;
+},true);
+document.addEventListener('pointerup',()=>{
+  if(_callerCardsBusy){
+    _callerCardsBusy=false;
+    if(_callerCardsPendingSync){_callerCardsPendingSync=false;_doRenderCallerCards();}
+  }
+},true);
+document.addEventListener('pointercancel',()=>{_callerCardsBusy=false;},true);
+function _safeRenderCallerCards(){
+  if(_callerCardsBusy){_callerCardsPendingSync=true;return;}
+  _doRenderCallerCards();
+}
+
 function _buildCallerBase(){
   const allActive=currentRole==='admin';
   let base=allActive?customers:customers.filter(c=>c.callerId===currentCallerId);
@@ -2145,7 +2179,8 @@ function _doRenderCallerCards(){
   }
   el.innerHTML=page.map(c=>callerCard(c)).join('');
   if(page.length<total){
-    el.innerHTML+=`<div style="text-align:center;padding:16px 0"><button onclick="callerLoadMore()" style="font-size:12px;padding:7px 20px;border-radius:20px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600"><i class="ti ti-chevron-down" style="font-size:11px;margin-right:4px"></i>Show more (${total-page.length} remaining)</button></div>`;
+    el.innerHTML+=`<div style="text-align:center;padding:16px 0"><button onclick="callerLoadMore()" style="font-size:12px;padding:7px 20px;border-radius:20px;background:var(--blue);color:#fff;border:none;cursor:pointer;font-weight:600"><i class="ti ti-chevron-down" style="font-size:11px;margin-right:4px"></i>Show more (${total-page.length} remaining)</button><div id="caller-load-sentinel" style="height:1px"></div></div>`;
+    _observeCallerLoadSentinel();
   }
 }
 
@@ -2397,7 +2432,7 @@ function saveCall(id){
   _callTimer.durSavedToHistory=false; // reset flag
   save();
   _refreshCallerStats();
-  _doRenderCallerCards();
+  _safeRenderCallerCards();
   // Bust the drill-down cache for this caller so re-opening shows the new entry
   const calPanel=document.getElementById('drill-panel-'+c.callerId);
   if(calPanel) delete calPanel.dataset.rendered;
@@ -4106,7 +4141,7 @@ function _syncAdmin(){
 }
 
 function _syncCaller(){
-  _doRenderCallerCards();
+  _safeRenderCallerCards();
 }
 
 // Other users' edits arrive here
