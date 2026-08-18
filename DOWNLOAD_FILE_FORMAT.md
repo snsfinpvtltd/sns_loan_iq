@@ -66,6 +66,9 @@ Empty cells mean data is not yet available (not yet analysed / not yet called).
 | `No Answer` | Could not reach |
 | `Converted` | Deal closed / loan disbursed |
 | `Wrong Number` | Invalid contact number |
+| `Invalid Number` | Number doesn't exist / can't be dialled |
+| `Voice Mail` | Call went to voicemail |
+| `Call Hang Up` | Contact hung up during the call |
 
 ---
 

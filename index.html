@@ -622,11 +622,11 @@ tr.caller-drill-row>td{padding:0!important;background:var(--bg)!important}
 <script>
 // ── STATE ─────────────────────────────────────────────────────────
 const ADMIN_PIN='1234'; // ← change this to your preferred admin PIN
-const STATUS_COLOR={'Not Called':'#888780','Follow Up':'#BA7517','Not Reachable':'#A32D2D','Wrong Number':'#A32D2D','Not Interested':'#A32D2D','Already Has Loan':'#534AB7','Callback Requested':'#185FA5','Interested':'#27500A'};
-const STATUS_BG={'Not Called':'#F1EFE8','Follow Up':'#FAEEDA','Not Reachable':'#FCEBEB','Wrong Number':'#FCEBEB','Not Interested':'#FCEBEB','Already Has Loan':'#EEEDFE','Callback Requested':'#E6F1FB','Interested':'#EAF3DE'};
-const STATUSES=['Not Called','Interested','Follow Up','Not Reachable','Wrong Number','Not Interested','Already Has Loan','Callback Requested'];
-const STATUS_IMPORT_MAP={'pending':'Not Called','interested':'Interested','not interested':'Not Interested','call back later':'Callback Requested','no answer':'Not Reachable','converted':'Converted','wrong number':'Wrong Number'};
-const STATUS_EXPORT_MAP={'Not Called':'Pending','Follow Up':'Pending','Interested':'Interested','Not Interested':'Not Interested','Callback Requested':'Call Back Later','Not Reachable':'No Answer','Converted':'Converted','Wrong Number':'Wrong Number'};
+const STATUS_COLOR={'Not Called':'#888780','Follow Up':'#BA7517','Not Reachable':'#A32D2D','Wrong Number':'#A32D2D','Not Interested':'#A32D2D','Already Has Loan':'#534AB7','Callback Requested':'#185FA5','Interested':'#27500A','Invalid Number':'#A32D2D','Voice Mail':'#0E7C86','Call Hang Up':'#C2410C'};
+const STATUS_BG={'Not Called':'#F1EFE8','Follow Up':'#FAEEDA','Not Reachable':'#FCEBEB','Wrong Number':'#FCEBEB','Not Interested':'#FCEBEB','Already Has Loan':'#EEEDFE','Callback Requested':'#E6F1FB','Interested':'#EAF3DE','Invalid Number':'#FCEBEB','Voice Mail':'#E3F5F6','Call Hang Up':'#FDECE2'};
+const STATUSES=['Not Called','Interested','Follow Up','Not Reachable','Wrong Number','Not Interested','Already Has Loan','Callback Requested','Invalid Number','Voice Mail','Call Hang Up'];
+const STATUS_IMPORT_MAP={'pending':'Not Called','interested':'Interested','not interested':'Not Interested','call back later':'Callback Requested','no answer':'Not Reachable','converted':'Converted','wrong number':'Wrong Number','invalid number':'Invalid Number','voice mail':'Voice Mail','voicemail':'Voice Mail','call hang up':'Call Hang Up','hung up':'Call Hang Up'};
+const STATUS_EXPORT_MAP={'Not Called':'Pending','Follow Up':'Pending','Interested':'Interested','Not Interested':'Not Interested','Callback Requested':'Call Back Later','Not Reachable':'No Answer','Converted':'Converted','Wrong Number':'Wrong Number','Invalid Number':'Invalid Number','Voice Mail':'Voice Mail','Call Hang Up':'Call Hang Up'};
 function computeGrade(s){return s>=70?'A':s>=55?'B':s>=40?'C':'D';}
 const PIN_MAP={'620017':'Khajamalai','620018':'Thillai Nagar','620003':'Woraiyur','620009':'Dheeran Nagar','621105':'Samayapuram','621212':'Perambalur','612001':'Kumbakonam','641601':'Tiruppur'};
 const SECTOR_MAP={'Sivanithra Associates':'General Business','C.Swaminathan The Principal-Srm Ihm':'Education','MRP Handicrafts And Jewellery':'Handicrafts / Retail','Veteran Technology Solution':'IT / Technology','G Punitha Books':'Books / Retail','Royal Software':'IT / Software','ESL Technical Training And Trade Test Center':'Education / Training','The Monster IT':'IT / Technology','RO Sales And Service':'Sales / Service','White O Chem':'Chemicals','SAS Groups':'Business Conglomerate'};
@@ -2411,7 +2411,7 @@ function waShare(id){
   save();
   const area=c.pin!=='—'?(PIN_MAP[c.pin]||c.city):c.city;
   const score_label=c.score>=80?'High':c.score>=60?'Moderate':'Low';
-  const status_emoji={'Not Called':'⬜','Interested':'✅','Follow Up':'🔁','Not Reachable':'📵','Wrong Number':'❌','Not Interested':'🚫','Already Has Loan':'💰','Callback Requested':'📞'}[c.status]||'📋';
+  const status_emoji={'Not Called':'⬜','Interested':'✅','Follow Up':'🔁','Not Reachable':'📵','Wrong Number':'❌','Not Interested':'🚫','Already Has Loan':'💰','Callback Requested':'📞','Invalid Number':'❌','Voice Mail':'📩','Call Hang Up':'📴'}[c.status]||'📋';
   const callerNote=c.comments?`
 📝 Notes: ${c.comments}`:'';
   const history=c.callHistory.length?`
