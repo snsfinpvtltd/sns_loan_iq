@@ -69,6 +69,8 @@ Empty cells mean data is not yet available (not yet analysed / not yet called).
 | `Invalid Number` | Number doesn't exist / can't be dialled |
 | `Voice Mail` | Call went to voicemail |
 | `Call Hang Up` | Contact hung up during the call |
+| `Not Answering` | Rang but no one picked up |
+| `Number Busy` | Line was busy |
 
 ---
 
