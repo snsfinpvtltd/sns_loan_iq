@@ -2190,12 +2190,23 @@ function _buildCallerBase(){
   return base;
 }
 
+// Same scoping as _buildCallerBase (role + which-caller selection) but WITHOUT
+// the search/score/city filters — the headline tiles must show true totals,
+// not whatever's left after a search term happens to be typed in.
+function _buildCallerStatsBase(){
+  const allActive=currentRole==='admin';
+  let base=allActive?customers:customers.filter(c=>c.callerId===currentCallerId);
+  if(allActive&&_callerFilter.callerId!=='all') base=base.filter(c=>c.callerId===_callerFilter.callerId);
+  return base;
+}
+
 function _updateCallerChips(base){
-  const done=base.filter(c=>c.status!=='Not Called').length;
-  const interested=base.filter(c=>c.status==='Interested').length;
-  const el_a=document.getElementById('mc-assigned');   if(el_a)el_a.textContent=base.length;
+  const statsBase=_buildCallerStatsBase();
+  const done=statsBase.filter(c=>c.status!=='Not Called').length;
+  const interested=statsBase.filter(c=>c.status==='Interested').length;
+  const el_a=document.getElementById('mc-assigned');   if(el_a)el_a.textContent=statsBase.length;
   const el_d=document.getElementById('mc-done');        if(el_d)el_d.textContent=done;
-  const el_r=document.getElementById('mc-remaining');   if(el_r)el_r.textContent=base.length-done;
+  const el_r=document.getElementById('mc-remaining');   if(el_r)el_r.textContent=statsBase.length-done;
   const el_i=document.getElementById('mc-interested');  if(el_i)el_i.textContent=interested;
   document.querySelectorAll('.f-chip[data-fk]').forEach(function(chip){
     const key=chip.dataset.fk;
