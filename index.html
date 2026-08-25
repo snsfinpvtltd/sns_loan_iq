@@ -439,6 +439,7 @@ tr.caller-drill-row>td{padding:0!important;background:var(--bg)!important}
     <div id="page-profile" class="page"></div>
     <div id="page-settings" class="page"></div>
     <div id="page-backup" class="page"></div>
+    <div id="page-batches" class="page"></div>
   </div>
 </div>
 
@@ -571,6 +572,7 @@ tr.caller-drill-row>td{padding:0!important;background:var(--bg)!important}
         <button onclick="renderManualAssign()"><i class="ti ti-edit"></i> Manual assign</button>
       </div>
     </div>
+    <div id="assign-pool-note"></div>
     <div id="assign-body"></div>
     <div style="margin-top:12px;display:flex;gap:8px">
       <button class="primary" onclick="saveAssignments()"><i class="ti ti-device-floppy"></i> Save assignments</button>
@@ -640,7 +642,25 @@ const PROVIDER_INFO={
 };
 
 function loadState(key,def){try{return JSON.parse(localStorage.getItem('liq_'+key))||def;}catch(e){return def;}}
-function saveState(key,val){localStorage.setItem('liq_'+key,JSON.stringify(val));}
+// localStorage has a hard per-origin quota (~5-10MB). A large enough customer
+// list (thousands of full records) can exceed it, and setItem() throws
+// synchronously when that happens — which used to propagate straight up
+// through save() and silently abort whatever called it (an assign action,
+// an import's follow-up cloud push, anything). Swallow it here instead: the
+// in-memory data and any cloud sync are unaffected either way, so a failed
+// *local* cache write should never block the rest of the app from working.
+let _storageQuotaWarned=false;
+function saveState(key,val){
+  try{
+    localStorage.setItem('liq_'+key,JSON.stringify(val));
+  }catch(e){
+    console.error('[saveState] local write failed for',key,e);
+    if(!_storageQuotaWarned){
+      _storageQuotaWarned=true;
+      if(typeof showToast==='function') showToast(`⚠ Browser storage is full — can't keep a local offline copy of all ${Array.isArray(val)?val.length+' ':''}records. Cloud sync stays active as the source of truth; local caching will resume once storage frees up.`,'#A32D2D');
+    }
+  }
+}
 
 let callers=loadState('callers',[
   {id:'c1',name:'Priya R',active:true,color:0},
@@ -746,36 +766,39 @@ function verifyAdminPin(){
 function buildNav(){
   const el=document.getElementById('nav-area');
   if(currentRole==='admin'){
-    el.innerHTML=`<button class="nav-btn active" id="nb-admin" onclick="showPage('admin')"><i class="ti ti-shield-lock"></i>Admin</button><button class="nav-btn" id="nb-caller" onclick="showPage('caller')"><i class="ti ti-phone"></i>Caller view</button><button class="nav-btn" id="nb-reports" onclick="showPage('reports')"><i class="ti ti-chart-bar"></i>Reports</button><button class="nav-btn" id="nb-backup" onclick="showPage('backup')"><i class="ti ti-archive"></i>Backup</button><button class="nav-btn" id="nb-settings" onclick="showPage('settings')"><i class="ti ti-settings"></i>Settings</button>`;
+    el.innerHTML=`<button class="nav-btn active" id="nb-admin" onclick="showPage('admin')"><i class="ti ti-shield-lock"></i>Admin</button><button class="nav-btn" id="nb-caller" onclick="showPage('caller')"><i class="ti ti-phone"></i>Caller view</button><button class="nav-btn" id="nb-batches" onclick="showPage('batches')"><i class="ti ti-layers-intersect"></i>Batches</button><button class="nav-btn" id="nb-reports" onclick="showPage('reports')"><i class="ti ti-chart-bar"></i>Reports</button><button class="nav-btn" id="nb-backup" onclick="showPage('backup')"><i class="ti ti-archive"></i>Backup</button><button class="nav-btn" id="nb-settings" onclick="showPage('settings')"><i class="ti ti-settings"></i>Settings</button>`;
   } else {
     el.innerHTML=`<button class="nav-btn active" id="nb-caller" onclick="showPage('caller')"><i class="ti ti-phone"></i>My calls</button><button class="nav-btn" id="nb-reports" onclick="showPage('reports')"><i class="ti ti-chart-bar"></i>My report</button>`;
   }
 }
 
 function showPage(p){
-  // ── ACCESS CONTROL: callers cannot access admin, settings or backup ──
-  if(currentRole!=='admin' && (p==='admin'||p==='settings'||p==='backup')){
+  // ── ACCESS CONTROL: callers cannot access admin, settings, backup or batches ──
+  if(currentRole!=='admin' && (p==='admin'||p==='settings'||p==='backup'||p==='batches')){
     openModal('access-denied-modal');
     return;
   }
-  ['admin','caller','reports','profile','settings','backup'].forEach(x=>{document.getElementById('page-'+x).className='page';});
+  ['admin','caller','reports','profile','settings','backup','batches'].forEach(x=>{document.getElementById('page-'+x).className='page';});
   document.getElementById('page-'+p).className='page active';
-  ['admin','caller','reports','backup','settings'].forEach(x=>{const b=document.getElementById('nb-'+x);if(b)b.className='nav-btn'+(x===p?' active':'');});
+  ['admin','caller','reports','backup','settings','batches'].forEach(x=>{const b=document.getElementById('nb-'+x);if(b)b.className='nav-btn'+(x===p?' active':'');});
   if(p!=='profile') prevPage=p;
   if(p==='admin') renderAdmin();
   else if(p==='caller') renderCaller();
   else if(p==='reports') renderReports();
   else if(p==='settings') renderSettings();
   else if(p==='backup') renderBackup();
+  else if(p==='batches') renderBatches();
 }
 
 // ── ADMIN ──────────────────────────────────────────────────────────
 function renderAdmin(){
   _adminSelected=new Set();
-  const total=customers.length,called=customers.filter(c=>c.status!=='Not Called').length,interested=customers.filter(c=>c.status==='Interested').length,enriched=customers.filter(c=>c.enriched).length;
+  const active=_assignablePool();
+  const poolCount=customers.length-active.length;
+  const total=active.length,called=active.filter(c=>c.status!=='Not Called').length,interested=active.filter(c=>c.status==='Interested').length,enriched=active.filter(c=>c.enriched).length;
   document.getElementById('page-admin').innerHTML=`
 <div class="g4">
-  <div class="mc"><div class="mc-v">${total}</div><div class="mc-l">Total customers</div></div>
+  <div class="mc"><div class="mc-v">${total}</div><div class="mc-l">Total customers</div>${poolCount?`<div class="mc-l" style="margin-top:6px;cursor:pointer;color:var(--gold-l);text-decoration:underline" onclick="showPage('batches')">+${poolCount} in master pool</div>`:''}</div>
   <div class="mc"><div class="mc-v">${called}</div><div class="mc-l">Called today</div></div>
   <div class="mc"><div class="mc-v">${interested}</div><div class="mc-l">Interested</div></div>
   <div class="mc"><div class="mc-v">${enriched}/${total}</div><div class="mc-l">AI enriched</div></div>
@@ -814,7 +837,7 @@ function renderAdmin(){
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
     <div class="card-title" style="margin:0">Customer list</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
-      <select onchange="adminFilter()" id="f-caller" style="width:auto;font-size:12px"><option>All callers</option>${callers.map(c=>`<option>${c.name}</option>`).join('')}</select>
+      <select onchange="adminFilter()" id="f-caller" style="width:auto;font-size:12px"><option>All callers</option>${callers.map(c=>`<option>${c.name}</option>`).join('')}<option>Unassigned</option></select>
       <select onchange="adminFilter()" id="f-status" style="width:auto;font-size:12px"><option>All statuses</option>${STATUSES.map(s=>`<option>${s}</option>`).join('')}</select>
       <select onchange="adminFilter()" id="f-elig" style="width:auto;font-size:12px"><option>All eligibility</option><option>High</option><option>Moderate</option><option>Low</option></select>
       <select onchange="adminFilter()" id="f-city" style="width:auto;font-size:12px"><option>All cities</option>${[...new Set(customers.map(c=>c.city||'').filter(Boolean))].sort().map(c=>`<option>${c}</option>`).join('')}</select>
@@ -971,10 +994,11 @@ function handleDropBk(event){
 function processFile(file, msgId){
   const msg=document.getElementById(msgId||'upload-msg');
   const name=file.name.toLowerCase();
+  const fileLabel=file.name.replace(/\.(csv|xlsx|xls)$/i,'');
   if(name.endsWith('.csv')){
     msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Reading CSV...</span>';
     const reader=new FileReader();
-    reader.onload=e=>importFromCSVText(e.target.result,msg);
+    reader.onload=e=>importFromCSVText(e.target.result,msg,fileLabel);
     reader.readAsText(file);
   } else if(name.endsWith('.xlsx')||name.endsWith('.xls')){
     msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Reading Excel...</span>';
@@ -984,7 +1008,7 @@ function processFile(file, msgId){
         const wb=XLSX.read(e.target.result,{type:'binary'});
         const ws=wb.Sheets[wb.SheetNames[0]];
         const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
-        importFromRowObjects(rows,msg);
+        importFromRowObjects(rows,msg,fileLabel);
       }catch(err){msg.innerHTML=`<span style="color:var(--red)">✗ Excel read error: ${err.message}</span>`;}
     };
     reader.readAsBinaryString(file);
@@ -1544,13 +1568,13 @@ async function downloadArchivedCsv(id){
   }catch(e){alert('Decryption failed — wrong PIN.');}
 }
 
-async function importFromRowObjects(rows,msg){
-  const activeCals=callers.filter(c=>c.active);
+async function importFromRowObjects(rows,msg,fileLabel){
   const uploadedAt=Date.now();
+  const batchId=uploadedAt;
+  const batchName=fileLabel||('Batch — '+new Date(uploadedAt).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}));
   const pi=s=>{const n=parseInt(String(s),10);return isNaN(n)?null:n;};
   const newC=rows.filter(r=>Object.values(r).some(v=>String(v).trim())).map((r,i)=>{
     const o={};Object.entries(r).forEach(([k,v])=>o[normalizeKey(k)]=String(v).trim());
-    const cal=activeCals[i%activeCals.length];
     // ── Identity ──────────────────────────────────────────────────
     const name=o.name||o.first_name||o.customer_name||o.full_name||'Unknown';
     const phone=o.mobile||o.phone||o.phone_number||o.glusr_usr_ph_mobile||'';
@@ -1609,9 +1633,9 @@ async function importFromRowObjects(rows,msg){
       designation:customerProfile||o.designation||o.role||o.title||'',
       email:o.email||o.email_id||o.email1||'',
       score,eligibility,loan,loanRange,priority,
-      callerId:cal?cal.id:'',status,comments:remarks,
+      callerId:'',status,comments:remarks,
       callHistory,enriched,aiInsight,callerTip,
-      uploadedAt,lastCalledAt:callHistory.length?callHistory[0].ts:null,
+      uploadedAt,batchId,batchName,lastCalledAt:callHistory.length?callHistory[0].ts:null,
       callCount:callHistory.length,lastWaAt:null,waCount:0,totalCallSecs:0,
       leadType,sourceSheet,locationType,keyInsights,districtNotes,aiAnalysedAt,
       customerProfile,incomeBand,monthlyIncome,maxLoan,maxEmi,loanTenure,
@@ -1623,19 +1647,19 @@ async function importFromRowObjects(rows,msg){
   _checkAndShowBackupModal(newC,msg);
 }
 
-async function importFromCSVText(text,msg){
+async function importFromCSVText(text,msg,fileLabel){
   const lines=text.split('\n').filter(r=>r.trim());
   if(lines.length<2){msg.innerHTML='<span style="color:var(--red)">✗ Empty CSV.</span>';return;}
   // Parse CSV respecting quoted fields
   function parseCSVRow(row){const out=[];let cur='',inQ=false;for(let i=0;i<row.length;i++){const ch=row[i];if(ch==='"'){if(inQ&&row[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}else if(ch===','&&!inQ){out.push(cur);cur='';}else cur+=ch;}out.push(cur);return out;}
   const headers=parseCSVRow(lines[0]).map(h=>normalizeKey(h));
-  const activeCals=callers.filter(c=>c.active);
   const uploadedAt=Date.now();
+  const batchId=uploadedAt;
+  const batchName=fileLabel||('Batch — '+new Date(uploadedAt).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}));
   const pi=s=>{const n=parseInt(String(s),10);return isNaN(n)?null:n;};
   const newC=lines.slice(1).filter(r=>r.trim()).map((row,i)=>{
     const vals=parseCSVRow(row);
     const o={};headers.forEach((h,j)=>o[h]=(vals[j]||'').trim());
-    const cal=activeCals[i%activeCals.length];
     const name=o.name||o.first_name||o.customer_name||'Unknown';
     const phone=o.mobile||o.phone||o.glusr_usr_ph_mobile||'';
     const pin=o.pin||o.pincode||o.zip||'—';
@@ -1668,9 +1692,9 @@ async function importFromCSVText(text,msg){
       designation:customerProfile||o.designation||'',
       email:o.email||o.email1||'',
       score,eligibility,loan,loanRange,priority,
-      callerId:cal?cal.id:'',status,comments:remarks,
+      callerId:'',status,comments:remarks,
       callHistory,enriched,aiInsight,callerTip,
-      uploadedAt,lastCalledAt:callHistory.length?callHistory[0].ts:null,
+      uploadedAt,batchId,batchName,lastCalledAt:callHistory.length?callHistory[0].ts:null,
       callCount:callHistory.length,lastWaAt:null,waCount:0,totalCallSecs:0,
       leadType,sourceSheet,locationType,keyInsights,districtNotes,aiAnalysedAt,
       customerProfile,incomeBand,monthlyIncome,maxLoan,maxEmi,loanTenure,
@@ -1801,23 +1825,126 @@ async function _finalizeImport(newC,keepStatuses,msg){
   const batch=await archiveOldData(customers);
 
   const merged=[...kept,...dedupedNew];
-  customers=merged;save();
+  customers=merged;
+
+  // replaceCustomers (below) fully reconciles the cloud copy of every record
+  // in one go, including tombstoning anything dropped — pre-seed the local
+  // dirty-diff snapshot for the genuinely-new rows so save()'s per-record
+  // auto-sync doesn't ALSO queue a second, redundant push right behind it.
+  // (Carried-over "kept" records are untouched by this import, so their
+  // existing snapshot entries — if any — are still accurate as-is.)
+  if(window.__cloudReady) dedupedNew.forEach(c=>{window.__cloudSnap.customers[c.id]=JSON.stringify(c);});
+  save();
 
   if(window.__cloudReady&&window.CloudSync&&CloudSync.isAuthed){
-    setSyncStatus('saving');
-    CloudSync.replaceCustomers(merged).then(()=>setSyncStatus('saved')).catch(e=>setSyncStatus('error',e.message));
+    setSyncStatus('saving',merged.length>300?`Syncing ${merged.length} contacts to Google Sheet…`:null);
+    CloudSync.replaceCustomers(merged)
+      .then(()=>{setSyncStatus('saved');showToast(`✓ ${merged.length} contacts synced to Google Sheet`);})
+      .catch(e=>{
+        setSyncStatus('error',e.message);
+        // Push failed — don't leave the new rows falsely marked "synced" or the
+        // per-record auto-sync will never retry them.
+        dedupedNew.forEach(c=>{delete window.__cloudSnap.customers[c.id];});
+        showToast(`✗ Cloud sync failed (${e.message}) — data is saved locally and will retry automatically`,'#A32D2D');
+      });
   }
 
   const archMsg=_archMsgFor(batch);
   const keptBadge=kept.length?` · <span class="badge b-green" style="font-size:9px"><i class="ti ti-user-check" style="font-size:9px"></i> ${kept.length} carried over</span>`:'';
-  msg.innerHTML=`<span style="color:#27500A">✓ ${dedupedNew.length} new + ${kept.length} carried over = ${merged.length} total customers.</span>${keptBadge}${archMsg}`;
-  adminFilter();renderArchivedBatches();
+  const poolNote=dedupedNew.length?` · <span class="badge b-blue" style="font-size:9px"><i class="ti ti-layers-intersect" style="font-size:9px"></i> ${dedupedNew.length} held in master pool — go to <strong>Batches</strong> to release</span>`:'';
+  msg.innerHTML=`<span style="color:#27500A">✓ ${dedupedNew.length} new + ${kept.length} carried over = ${merged.length} total customers.</span>${keptBadge}${poolNote}${archMsg}`;
+  renderAdmin();renderArchivedBatches();renderBatches();
 }
 
+// ── MASTER DATA BATCHES ─────────────────────────────────────────────
+// Newly uploaded contacts land with callerId:'' and a batchId/batchName tag
+// (see importFromRowObjects/importFromCSVText) — they sit in this master
+// pool, invisible to every caller, until an admin explicitly releases some
+// or all of a batch to caller(s) below. Releasing = assigning a callerId.
+function _batchList(){
+  const map={};
+  customers.forEach(c=>{
+    if(!c.batchId) return;
+    if(!map[c.batchId]) map[c.batchId]={batchId:c.batchId,batchName:c.batchName||('Batch '+c.batchId),uploadedAt:c.uploadedAt||c.batchId,total:0,released:0};
+    map[c.batchId].total++;
+    if(c.callerId) map[c.batchId].released++;
+  });
+  return Object.values(map).sort((a,b)=>b.uploadedAt-a.uploadedAt);
+}
+
+function releaseBatch(batchId,count,mode,singleCallerId){
+  const active=callers.filter(c=>c.active);
+  if(!active.length){showToast('No active callers!','#A32D2D');return;}
+  if(mode==='single'&&!singleCallerId){showToast('Pick a caller to release to','#A32D2D');return;}
+  const pending=customers.filter(c=>c.batchId===batchId&&!c.callerId).sort((a,b)=>a.id-b.id);
+  const n=Math.max(0,Math.min(count||0,pending.length));
+  if(!n){showToast('Nothing to release','#A32D2D');return;}
+  for(let i=0;i<n;i++){
+    pending[i].callerId=mode==='single'?singleCallerId:active[i%active.length].id;
+  }
+  save();
+  showToast(`Released ${n} contact${n>1?'s':''}`+(mode==='single'?' to '+callerName(singleCallerId):' across '+active.length+' caller'+(active.length>1?'s':'')));
+  renderBatches();
+  if(currentRole==='admin') adminFilter();
+}
+
+function _toggleReleaseCallerSelect(batchId){
+  const mode=document.getElementById('rel-mode-'+batchId).value;
+  const sel=document.getElementById('rel-caller-'+batchId);
+  if(sel) sel.style.display=mode==='single'?'inline-block':'none';
+}
+
+function _doReleaseBatch(batchId){
+  const countInp=document.getElementById('rel-count-'+batchId);
+  const mode=document.getElementById('rel-mode-'+batchId).value;
+  const callerSel=document.getElementById('rel-caller-'+batchId);
+  const count=parseInt(countInp.value,10)||0;
+  releaseBatch(batchId,count,mode,mode==='single'?callerSel.value:null);
+}
+
+function renderBatches(){
+  const el=document.getElementById('page-batches');
+  if(!el) return;
+  const batches=_batchList();
+  const activeCallers=callers.filter(c=>c.active);
+  if(!batches.length){
+    el.innerHTML=`<div class="card"><div style="text-align:center;padding:40px 20px;color:var(--text2)"><i class="ti ti-layers-intersect" style="font-size:36px;display:block;margin-bottom:8px"></i><div style="font-weight:600">No master batches yet</div><div style="font-size:12px;margin-top:4px">Upload a file from the Admin page — it lands here as a batch you release to callers when ready.</div></div></div>`;
+    return;
+  }
+  el.innerHTML=`<div class="card" style="margin-bottom:14px">
+    <div class="card-title">Master data batches</div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.6">Uploaded contacts sit here, invisible to every caller, until you release them. Release a batch fully or a portion at a time — round-robin across active callers, or hand the whole slice to one caller.</div>
+  </div>`
+  +batches.map(b=>{
+    const pending=b.total-b.released;
+    const pct=b.total?Math.round(b.released/b.total*100):0;
+    return `<div class="card" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <div>
+          <div style="font-weight:700;font-size:14px">${b.batchName}</div>
+          <div style="font-size:11px;color:var(--text2)">Uploaded ${fmtUpload(b.uploadedAt)} · ${b.total} contact${b.total>1?'s':''}</div>
+        </div>
+        <span class="badge ${pending===0?'b-green':'b-amber'}" style="font-size:10px">${pending===0?'Fully released':pending+' pending release'}</span>
+      </div>
+      <div class="prog-bg" style="margin-bottom:10px"><div class="prog-f" style="width:${pct}%;background:var(--green)"></div></div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:10px">${b.released} released · ${pending} still in master pool</div>
+      ${pending>0?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="number" id="rel-count-${b.batchId}" value="${pending}" min="1" max="${pending}" style="width:80px;font-size:12px;padding:6px 8px">
+        <select id="rel-mode-${b.batchId}" onchange="_toggleReleaseCallerSelect(${b.batchId})" style="font-size:12px;padding:6px 8px">
+          <option value="roundrobin">Round-robin (all active callers)</option>
+          <option value="single">Specific caller</option>
+        </select>
+        <select id="rel-caller-${b.batchId}" style="font-size:12px;padding:6px 8px;display:none">${activeCallers.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select>
+        <button class="primary" onclick="_doReleaseBatch(${b.batchId})"><i class="ti ti-send"></i> Release</button>
+      </div>`:''}
+    </div>`;
+  }).join('');
+}
 
 // ── ASSIGN MODAL ───────────────────────────────────────────────────
 function renderAssignModal(){
   _assignMode='manual';
+  _renderAssignPoolNote();
   document.getElementById('assign-body').innerHTML=`<div style="font-size:13px;color:var(--text);line-height:1.6;padding:12px;background:#fafbfd;border:1px solid var(--border);border-radius:var(--rs);margin-top:8px">Pick a method:
     <ul style="margin:6px 0 0 18px;padding:0">
       <li><strong>Auto-assign evenly</strong> — round-robin distribution across active callers</li>
@@ -1827,22 +1954,52 @@ function renderAssignModal(){
   </div>`;
 }
 
+// These tools only ever touch _assignablePool() (see its definition below) —
+// anything still sitting unreleased in a master batch is invisible to them
+// on purpose. Say so explicitly, since silently doing less than the admin
+// expects (e.g. "assigned 300" when 7769 more were just uploaded) reads as
+// the feature being broken rather than working as designed.
+function _renderAssignPoolNote(){
+  const el=document.getElementById('assign-pool-note');
+  if(!el) return;
+  const poolCount=customers.length-_assignablePool().length;
+  el.innerHTML=poolCount?`<div style="font-size:12px;line-height:1.5;color:#854F0B;background:#FAEEDA;border:1px solid #f0c070;border-radius:var(--rs);padding:9px 12px;margin-bottom:10px;display:flex;align-items:flex-start;gap:8px">
+    <i class="ti ti-alert-triangle" style="flex-shrink:0;margin-top:1px"></i>
+    <div><strong>${poolCount} contact${poolCount>1?'s are':' is'} still in the master pool</strong> and won't be touched by these tools — they only assign contacts that are already active. Release batches from <a href="javascript:void(0)" onclick="closeModal('assign-modal');showPage('batches')" style="color:#854F0B;font-weight:700;text-decoration:underline">Batches</a> first.</div>
+  </div>`:'';
+}
+
+// Un-released master-pool records (uploaded via a batch, not yet released) are
+// deliberately excluded from the legacy bulk-assign tools below — otherwise
+// "Auto-assign evenly" etc. would silently release an entire master batch at
+// once, defeating the point of Batches (release) as the gate. Use the
+// Batches page to move contacts out of the pool first.
+function _assignablePool(){return customers.filter(c=>!(c.batchId&&!c.callerId));}
+function _poolCaveat(){const n=customers.length-_assignablePool().length;return n?` (${n} more still in the master pool — release from Batches)`:'';}
+
 function autoAssign(){
-  _assignMode='auto';
-  const active=callers.filter(c=>c.active);
-  if(!active.length){showToast('No active callers!','#A32D2D');return;}
-  customers.forEach((c,i)=>c.callerId=active[i%active.length].id);
-  save();showToast(`Auto-assigned ${customers.length} contacts across ${active.length} callers`);
-  closeModal('assign-modal');adminFilter();
+  try{
+    _assignMode='auto';
+    const active=callers.filter(c=>c.active);
+    if(!active.length){showToast('No active callers!','#A32D2D');return;}
+    const pool=_assignablePool();
+    pool.forEach((c,i)=>c.callerId=active[i%active.length].id);
+    save();showToast(`Auto-assigned ${pool.length} contacts across ${active.length} callers`+_poolCaveat());
+    closeModal('assign-modal');adminFilter();
+  }catch(e){
+    console.error('[autoAssign]',e);
+    showToast(`✗ Auto-assign failed: ${e.message} — nothing was saved`,'#A32D2D');
+  }
 }
 
 function renderManualAssign(){
   _assignMode='manual';
   const body=document.getElementById('assign-body');
+  const pool=_assignablePool();
   body.innerHTML=`<div style="max-height:340px;overflow-y:auto;margin-top:12px">
   <table class="tbl">
     <thead><tr><th>Customer</th><th>Company</th><th>Assign to</th></tr></thead>
-    <tbody>${customers.map(c=>`<tr><td style="font-weight:600;font-size:12px">${c.name}</td><td style="font-size:11px;color:var(--text2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.company}</td><td><select id="as-${c.id}" style="font-size:12px;padding:4px 6px">${callers.filter(x=>x.active).map(cal=>`<option value="${cal.id}"${cal.id===c.callerId?' selected':''}>${cal.name}</option>`).join('')}</select></td></tr>`).join('')}
+    <tbody>${pool.map(c=>`<tr><td style="font-weight:600;font-size:12px">${c.name}</td><td style="font-size:11px;color:var(--text2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.company}</td><td><select id="as-${c.id}" style="font-size:12px;padding:4px 6px">${callers.filter(x=>x.active).map(cal=>`<option value="${cal.id}"${cal.id===c.callerId?' selected':''}>${cal.name}</option>`).join('')}</select></td></tr>`).join('')}
     </tbody>
   </table></div>`;
 }
@@ -1930,8 +2087,8 @@ function recomputePctEstimates(){
     else if(total>100){warnEl.style.display='block';warnEl.innerHTML=`<span style="color:var(--red)"><i class="ti ti-alert-triangle"></i> Total is ${total}% — over by ${total-100}. Reduce shares or click "Normalize to 100%".</span>`;}
     else {warnEl.style.display='block';warnEl.innerHTML=`<span style="color:var(--amber)"><i class="ti ti-alert-triangle"></i> Total is ${total}% — short by ${100-total}. Increase shares or click "Normalize to 100%".</span>`;}
   }
-  // live row estimates (largest-remainder)
-  const counts=_largestRemainder(customers.length,pct);
+  // live row estimates (largest-remainder) — matches applyPercentAssign's pool
+  const counts=_largestRemainder(_assignablePool().length,pct);
   Object.entries(counts).forEach(([id,n])=>{
     const el=document.getElementById('pct-est-'+id);
     if(el) el.textContent=`≈ ${n} row${n===1?'':'s'}`;
@@ -1983,40 +2140,51 @@ function normalizePct(){
 }
 
 function applyPercentAssign(){
-  const pct=_readPct();
-  const total=Object.values(pct).reduce((a,b)=>a+b,0);
-  if(total!==100){
-    if(!confirm(`Total is ${total}%. Auto-normalize to 100% and continue?`)) return;
-    normalizePct();
-  }
-  const finalPct=_readPct();
-  saveState('assign_pct',finalPct);
-  const counts=_largestRemainder(customers.length,finalPct);
-  // Shuffle customer order so it's randomized, not just the first N to caller A
-  const order=[...customers];
-  for(let i=order.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]];}
-  let cursor=0;
-  Object.entries(counts).forEach(([callerId,n])=>{
-    for(let i=0;i<n;i++){
-      if(order[cursor]) order[cursor].callerId=callerId;
-      cursor++;
+  try{
+    const pct=_readPct();
+    const total=Object.values(pct).reduce((a,b)=>a+b,0);
+    if(total!==100){
+      if(!confirm(`Total is ${total}%. Auto-normalize to 100% and continue?`)) return;
+      normalizePct();
     }
-  });
-  save();
-  const summary=Object.entries(counts).map(([id,n])=>{
-    const cal=callers.find(c=>c.id===id);return `${cal?cal.name:id}: ${n} (${finalPct[id]}%)`;
-  }).join(' · ');
-  showToast(`Allocated by %: ${summary}`);
-  closeModal('assign-modal');adminFilter();
+    const finalPct=_readPct();
+    saveState('assign_pct',finalPct);
+    const pool=_assignablePool();
+    const counts=_largestRemainder(pool.length,finalPct);
+    // Shuffle customer order so it's randomized, not just the first N to caller A
+    const order=[...pool];
+    for(let i=order.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[order[i],order[j]]=[order[j],order[i]];}
+    let cursor=0;
+    Object.entries(counts).forEach(([callerId,n])=>{
+      for(let i=0;i<n;i++){
+        if(order[cursor]) order[cursor].callerId=callerId;
+        cursor++;
+      }
+    });
+    save();
+    const summary=Object.entries(counts).map(([id,n])=>{
+      const cal=callers.find(c=>c.id===id);return `${cal?cal.name:id}: ${n} (${finalPct[id]}%)`;
+    }).join(' · ');
+    showToast(`Allocated by %: ${summary}`+_poolCaveat());
+    closeModal('assign-modal');adminFilter();
+  }catch(e){
+    console.error('[applyPercentAssign]',e);
+    showToast(`✗ Assign by % failed: ${e.message} — nothing was saved`,'#A32D2D');
+  }
 }
 
 function saveAssignments(){
-  if(_assignMode==='percent'){applyPercentAssign();return;}
-  customers.forEach(c=>{
-    const el=document.getElementById('as-'+c.id);
-    if(el) c.callerId=el.value;
-  });
-  save();showToast('Assignments saved');closeModal('assign-modal');adminFilter();
+  try{
+    if(_assignMode==='percent'){applyPercentAssign();return;}
+    customers.forEach(c=>{
+      const el=document.getElementById('as-'+c.id);
+      if(el) c.callerId=el.value;
+    });
+    save();showToast('Assignments saved'+_poolCaveat());closeModal('assign-modal');adminFilter();
+  }catch(e){
+    console.error('[saveAssignments]',e);
+    showToast(`✗ Save failed: ${e.message}`,'#A32D2D');
+  }
 }
 
 function openModal(id){document.getElementById(id).className='modal-overlay open';}
@@ -2636,7 +2804,11 @@ function _clearReportFilters(){
 }
 
 function _applyReportFilter(){
-  const base=currentRole==='admin'?customers:customers.filter(c=>c.callerId===currentCallerId);
+  // Admin's base excludes un-released master-pool records (see Batches) —
+  // they aren't anyone's workload yet, so they shouldn't dilute Called/
+  // Completion figures. A caller's own base never includes them anyway
+  // since those records have no callerId.
+  const base=currentRole==='admin'?_assignablePool():customers.filter(c=>c.callerId===currentCallerId);
   const caller=document.getElementById('rf-caller')?.value||'';
   const called=document.getElementById('rf-called')?.value||'all';
   const status=document.getElementById('rf-status')?.value||'';
@@ -2660,6 +2832,7 @@ function _renderReportCharts(myList){
   const high=myList.filter(c=>c.score>=80).length,mid=myList.filter(c=>c.score>=60&&c.score<80).length,low=myList.filter(c=>c.score<60).length;
   const called=myList.filter(c=>c.status!=='Not Called').length;
   const callerFilter=document.getElementById('rf-caller')?.value||'';
+  const poolCount=(currentRole==='admin'&&!callerFilter)?(customers.length-_assignablePool().length):0;
   const callerRows=currentRole==='admin'?callers.filter(c=>c.active&&(!callerFilter||c.id===callerFilter)).map(cal=>{
     const cl=myList.filter(c=>c.callerId===cal.id);
     const cc=cl.filter(c=>c.status!=='Not Called').length;
@@ -2676,7 +2849,7 @@ function _renderReportCharts(myList){
 
   el.innerHTML=`
 <div class="g4">
-  <div class="mc"><div class="mc-v">${total}</div><div class="mc-l">Total</div></div>
+  <div class="mc"><div class="mc-v">${total}</div><div class="mc-l">Total</div>${poolCount?`<div class="mc-l" style="margin-top:6px;cursor:pointer;color:var(--gold-l);text-decoration:underline" onclick="showPage('batches')">+${poolCount} in master pool</div>`:''}</div>
   <div class="mc"><div class="mc-v">${called}</div><div class="mc-l">Called</div></div>
   <div class="mc"><div class="mc-v">${statusCounts['Interested']||0}</div><div class="mc-l">Interested</div></div>
   <div class="mc"><div class="mc-v">${total?Math.round(called/total*100):0}%</div><div class="mc-l">Completion</div></div>
@@ -4136,26 +4309,53 @@ function _snapshotState(){
   callers.forEach(c=>window.__cloudSnap.callers[c.id]=JSON.stringify(c));
 }
 
+// Records only get marked "synced" in __cloudSnap once their push actually
+// succeeds — marking them optimistically (as this used to do) meant a failed
+// or timed-out push left those records permanently stuck: next time save()
+// ran, the diff would see snap===current and never retry them.
 function _diffAndPush(){
   if(!window.CloudSync || !window.CloudSync.isAuthed || !window.__cloudReady) return;
-  const dirtyC=[], dirtyK=[];
+  const dirtyC=[], dirtyCJson={}, dirtyK=[], dirtyKJson={};
   customers.forEach(c=>{
     const j=JSON.stringify(c);
-    if(window.__cloudSnap.customers[c.id]!==j){window.__cloudSnap.customers[c.id]=j;dirtyC.push(c);}
+    if(window.__cloudSnap.customers[c.id]!==j){dirtyC.push(c);dirtyCJson[c.id]=j;}
   });
   callers.forEach(c=>{
     const j=JSON.stringify(c);
-    if(window.__cloudSnap.callers[c.id]!==j){window.__cloudSnap.callers[c.id]=j;dirtyK.push(c);}
+    if(window.__cloudSnap.callers[c.id]!==j){dirtyK.push(c);dirtyKJson[c.id]=j;}
   });
-  if(dirtyC.length){
-    setSyncStatus('saving');
-    const p = dirtyC.length===1 ? CloudSync.upsertCustomer(dirtyC[0]) : CloudSync.upsertCustomers(dirtyC);
-    p.then(()=>setSyncStatus('saved')).catch(e=>setSyncStatus('error',e.message));
-  }
+  if(dirtyC.length) _pushCustomersChunked(dirtyC,dirtyCJson);
   if(dirtyK.length){
     setSyncStatus('saving');
-    CloudSync.upsertCallers(dirtyK).then(()=>setSyncStatus('saved')).catch(e=>setSyncStatus('error',e.message));
+    CloudSync.upsertCallers(dirtyK)
+      .then(()=>{dirtyK.forEach(c=>{window.__cloudSnap.callers[c.id]=dirtyKJson[c.id];});setSyncStatus('saved');})
+      .catch(e=>{setSyncStatus('error',e.message);showToast(`✗ Cloud sync failed for callers (${e.message})`,'#A32D2D');});
   }
+}
+
+// Large upserts (e.g. releasing an 8000-contact batch) are sent in chunks
+// rather than one giant request — smaller, more reliable round-trips, and a
+// failure partway through only loses the *remaining* chunk instead of
+// forcing a full retry of everything.
+const CLOUD_SYNC_CHUNK=300;
+async function _pushCustomersChunked(list,jsonMap){
+  const total=list.length;
+  let synced=0;
+  for(let i=0;i<total;i+=CLOUD_SYNC_CHUNK){
+    const chunk=list.slice(i,i+CLOUD_SYNC_CHUNK);
+    setSyncStatus('saving',total>CLOUD_SYNC_CHUNK?`Syncing ${Math.min(i+CLOUD_SYNC_CHUNK,total)}/${total} contacts…`:null);
+    try{
+      await (chunk.length===1?CloudSync.upsertCustomer(chunk[0]):CloudSync.upsertCustomers(chunk));
+      chunk.forEach(c=>{window.__cloudSnap.customers[c.id]=jsonMap[c.id];});
+      synced+=chunk.length;
+    }catch(e){
+      setSyncStatus('error',e.message);
+      showToast(`✗ Cloud sync stopped after ${synced}/${total} contacts (${e.message}) — the rest will retry automatically on the next change`,'#A32D2D');
+      return;
+    }
+  }
+  setSyncStatus('saved');
+  if(total>CLOUD_SYNC_CHUNK) showToast(`✓ Synced ${total} contacts to Google Sheet`);
 }
 
 // Wrap save() so every change propagates to the cloud
@@ -4164,7 +4364,7 @@ save=function(){_origSave.apply(this,arguments);if(window.__cloudReady)_diffAndP
 
 function setSyncStatus(s,msg){
   const el=document.getElementById('sync-status'); if(!el) return;
-  if(s==='saving')   el.innerHTML='<i class="ti ti-cloud-upload" style="color:#FFD45A"></i> Saving…';
+  if(s==='saving')   el.innerHTML='<i class="ti ti-cloud-upload" style="color:#FFD45A"></i> '+(msg||'Saving…');
   else if(s==='saved'){
     el.innerHTML='<i class="ti ti-cloud-check" style="color:#4ABA72"></i> Synced';
     el.title='All changes saved to Google Sheet';

@@ -286,12 +286,16 @@ function _replaceCustomers(list, email) {
     const last = sh.getLastRow();
     const now = Date.now();
     if (last >= 2) {
+      const n = last - 1;
       const upd = headers.indexOf('updatedAt') + 1;
       const dl  = headers.indexOf('deleted') + 1;
-      for (let r = 2; r <= last; r++) {
-        sh.getRange(r, dl).setValue(true);
-        sh.getRange(r, upd).setValue(now);
-      }
+      // Batched column writes (2 API calls total) instead of one setValue()
+      // per row per column — the old per-cell loop did 2*n round-trips,
+      // which for a sheet that has accumulated thousands of tombstoned rows
+      // over past imports easily blew past the 6-minute execution limit and
+      // made large new batches silently fail to sync.
+      sh.getRange(2, dl, n, 1).setValues(Array(n).fill([true]));
+      sh.getRange(2, upd, n, 1).setValues(Array(n).fill([now]));
     }
     // append new rows
     const rows = list.map(c => {
