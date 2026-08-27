@@ -30,6 +30,7 @@ const CUSTOMER_COLS = [
   'score','eligibility','loan','callerId','status','comments',
   'callHistory','enriched','aiInsight',
   'lastCalledAt','callCount','lastWaAt','waCount',
+  'batchId','batchName','dataSourceId','dataSourceName',
   'updatedAt','updatedBy','deleted'
 ];
 const CALLER_COLS = ['id','name','active','color','updatedAt','updatedBy','deleted'];

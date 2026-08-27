@@ -534,11 +534,11 @@ tr.caller-drill-row>td{padding:0!important;background:var(--bg)!important}
   </div>
 </div>
 
-<!-- UPLOAD BACKUP / CARRY-OVER MODAL -->
+<!-- NAME NEW DATA SOURCE MODAL -->
 <div class="modal-overlay" id="upload-backup-modal">
   <div class="modal-box" style="max-width:560px">
     <div class="modal-title">
-      <span><i class="ti ti-shield-check" style="color:var(--green)"></i> Carry over active customers?</span>
+      <span><i class="ti ti-database-import" style="color:var(--green)"></i> Name this data source</span>
       <button onclick="closeModal('upload-backup-modal')" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--text2)">&times;</button>
     </div>
     <div id="backup-modal-body"></div>
@@ -564,6 +564,10 @@ tr.caller-drill-row>td{padding:0!important;background:var(--bg)!important}
 <div class="modal-overlay" id="assign-modal">
   <div class="modal-box" style="max-width:640px">
     <div class="modal-title">Assign contacts to callers <button onclick="closeModal('assign-modal')" style="border:none;background:none;font-size:20px;cursor:pointer;color:var(--text2)">&times;</button></div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:6px">SCOPE</label>
+      <select id="assign-scope" onchange="_onAssignScopeChange()" style="width:100%;font-size:13px;padding:8px 10px"></select>
+    </div>
     <div style="margin-bottom:12px">
       <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:6px">ASSIGN METHOD</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -838,6 +842,7 @@ function renderAdmin(){
     <div class="card-title" style="margin:0">Customer list</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <select onchange="adminFilter()" id="f-caller" style="width:auto;font-size:12px"><option>All callers</option>${callers.map(c=>`<option>${c.name}</option>`).join('')}<option>Unassigned</option></select>
+      <select onchange="adminFilter()" id="f-batch" style="width:auto;font-size:12px"><option value="">All batches</option>${_batchFilterOptions()}</select>
       <select onchange="adminFilter()" id="f-status" style="width:auto;font-size:12px"><option>All statuses</option>${STATUSES.map(s=>`<option>${s}</option>`).join('')}</select>
       <select onchange="adminFilter()" id="f-elig" style="width:auto;font-size:12px"><option>All eligibility</option><option>High</option><option>Moderate</option><option>Low</option></select>
       <select onchange="adminFilter()" id="f-city" style="width:auto;font-size:12px"><option>All cities</option>${[...new Set(customers.map(c=>c.city||'').filter(Boolean))].sort().map(c=>`<option>${c}</option>`).join('')}</select>
@@ -925,6 +930,7 @@ async function _runAIOnSelected(){
 
 function _renderAdminTable(){
   const fc=document.getElementById('f-caller')?.value||'All callers';
+  const fb=document.getElementById('f-batch')?.value||'';
   const fs=document.getElementById('f-status')?.value||'All statuses';
   const fe=document.getElementById('f-elig')?.value||'All eligibility';
   const fq=(document.getElementById('f-search')?.value||'').toLowerCase();
@@ -933,6 +939,7 @@ function _renderAdminTable(){
   const fmax=parseInt(document.getElementById('f-score-max')?.value,10);
   let list=customers;
   if(fc!=='All callers') list=list.filter(c=>callerName(c.callerId)===fc);
+  if(fb) list=list.filter(c=>_matchesBatchFilter(c,fb));
   if(fs!=='All statuses') list=list.filter(c=>c.status===fs);
   if(fe!=='All eligibility') list=list.filter(c=>c.eligibility===fe);
   if(fcity!=='All cities') list=list.filter(c=>(c.city||'')=== fcity);
@@ -952,7 +959,7 @@ function _renderAdminTable(){
       <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">${c.company}</td>
       <td style="font-size:12px">${c.pin!=='—'?(PIN_MAP[c.pin]||c.city)+' · '+c.pin:c.city}</td>
       <td><div style="display:flex;align-items:center;gap:5px"><span style="font-weight:800;color:${scoreColor(c.score)}">${c.score}</span><span style="font-size:9px;font-weight:700;padding:1px 4px;border-radius:3px;background:${scoreColor(c.score)}22;color:${scoreColor(c.score)}">${computeGrade(c.score)}</span><div class="prog-bg" style="width:30px"><div class="prog-f" style="width:${c.score}%;background:${scoreColor(c.score)}"></div></div></div></td>
-      <td style="font-size:12px">${callerName(c.callerId)}</td>
+      <td style="font-size:12px">${callerName(c.callerId)}${c.archived?' <i class="ti ti-lock" style="font-size:10px;color:var(--purple)" title="Closed batch — hidden from caller"></i>':''}</td>
       <td><span class="status-pill" style="background:${STATUS_BG[c.status]};color:${STATUS_COLOR[c.status]}"><span class="dot" style="background:${STATUS_COLOR[c.status]}"></span>${c.status}</span></td>
       <td style="font-size:11px">${c.leadType?`<span class="badge b-blue" style="font-size:9px">${c.leadType}</span>`:'<span style="color:var(--text2)">—</span>'}</td>
       <td>${fmtUpload(c.uploadedAt)}</td>
@@ -1635,7 +1642,7 @@ async function importFromRowObjects(rows,msg,fileLabel){
       score,eligibility,loan,loanRange,priority,
       callerId:'',status,comments:remarks,
       callHistory,enriched,aiInsight,callerTip,
-      uploadedAt,batchId,batchName,lastCalledAt:callHistory.length?callHistory[0].ts:null,
+      uploadedAt,batchId,batchName,dataSourceId:batchId,dataSourceName:batchName,lastCalledAt:callHistory.length?callHistory[0].ts:null,
       callCount:callHistory.length,lastWaAt:null,waCount:0,totalCallSecs:0,
       leadType,sourceSheet,locationType,keyInsights,districtNotes,aiAnalysedAt,
       customerProfile,incomeBand,monthlyIncome,maxLoan,maxEmi,loanTenure,
@@ -1694,7 +1701,7 @@ async function importFromCSVText(text,msg,fileLabel){
       score,eligibility,loan,loanRange,priority,
       callerId:'',status,comments:remarks,
       callHistory,enriched,aiInsight,callerTip,
-      uploadedAt,batchId,batchName,lastCalledAt:callHistory.length?callHistory[0].ts:null,
+      uploadedAt,batchId,batchName,dataSourceId:batchId,dataSourceName:batchName,lastCalledAt:callHistory.length?callHistory[0].ts:null,
       callCount:callHistory.length,lastWaAt:null,waCount:0,totalCallSecs:0,
       leadType,sourceSheet,locationType,keyInsights,districtNotes,aiAnalysedAt,
       customerProfile,incomeBand,monthlyIncome,maxLoan,maxEmi,loanTenure,
@@ -1714,145 +1721,49 @@ function _archMsgFor(batch){
   return ` · <span class="badge b-amber" style="font-size:9px"><i class="ti ti-lock" style="font-size:8px"></i> ${batch.count} archived locally (AES-256) — configure webhook in Settings to auto-push</span>`;
 }
 
-// ── UPLOAD BACKUP / CARRY-OVER ─────────────────────────────────────
+// ── NEW DATA SOURCE UPLOAD ──────────────────────────────────────────
+// Every upload becomes its own separate, named data source, appended
+// alongside whatever's already there — never merged, deduped, or used to
+// replace existing customers. Admin carves batches out of it (Batches →
+// "Carve out a named batch") and follows the normal release/close flow.
 let _pendingImport=null; // {newC, msg}
 
 function _checkAndShowBackupModal(newC,msg){
-  // Build counts for every non-"Not Called" status that has at least one customer
-  const statusCounts={};
-  STATUSES.filter(s=>s!=='Not Called').forEach(s=>{
-    const n=customers.filter(c=>c.status===s).length;
-    if(n>0) statusCounts[s]=n;
-  });
-  if(!Object.keys(statusCounts).length){
-    // Nothing worth keeping — go straight to import
-    _finalizeImport(newC,[],msg);
-    return;
-  }
   _pendingImport={newC,msg};
-  _renderBackupModal(statusCounts,newC.length);
-  openModal('upload-backup-modal');
-}
-
-function _renderBackupModal(statusCounts,newCount){
-  const DEFAULT_KEEP=['Interested','Callback Requested'];
-  const totalActive=Object.values(statusCounts).reduce((s,n)=>s+n,0);
-  let rows='';
-  Object.entries(statusCounts).forEach(([s,n])=>{
-    const chk=DEFAULT_KEEP.includes(s)?'checked':'';
-    const sid='bk-'+s.replace(/\s+/g,'_');
-    rows+=`<label style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--rs);border:1px solid var(--border);background:var(--card);cursor:pointer;margin-bottom:6px;transition:background .12s" onmouseover="this.style.background='var(--blue-l)'" onmouseout="this.style.background='var(--card)'">
-      <input type="checkbox" id="${sid}" ${chk} onchange="_updateBackupCount(${newCount})" style="width:16px;height:16px;cursor:pointer;accent-color:var(--navy)">
-      <span class="status-pill" style="background:${STATUS_BG[s]};color:${STATUS_COLOR[s]}"><span class="dot" style="background:${STATUS_COLOR[s]}"></span>${s}</span>
-      <span style="font-weight:800;font-size:14px;color:${STATUS_COLOR[s]}">${n}</span>
-      <span style="font-size:12px;color:var(--text2)">customer${n>1?'s':''}</span>
-      <span style="margin-left:auto;font-size:11px;color:var(--text2)">${n} will be kept</span>
-    </label>`;
-  });
-
+  const defaultName=(newC[0]&&newC[0].batchName)||('Data source — '+new Date().toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}));
   document.getElementById('backup-modal-body').innerHTML=`
     <div style="padding:4px 0 14px;font-size:13px;color:var(--text2);line-height:1.6">
-      Your current batch has <strong style="color:var(--text)">${customers.length} customers</strong> —
-      <strong style="color:var(--navy)">${totalActive} are active</strong> (not "Not Called").<br>
-      Select which statuses to carry over into the new <strong>${newCount}-record</strong> import.
-      Carried-over customers are deduplicated by phone number.
+      <strong style="color:var(--text)">${newC.length} contact${newC.length>1?'s':''}</strong> will be added as a new, separate data source.
+      Your existing <strong style="color:var(--text)">${customers.length} customer${customers.length!==1?'s':''}</strong> are untouched — nothing is merged or replaced.
+      Go to <strong>Batches</strong> afterwards to carve batches out of it and release them to callers.
     </div>
-    <div style="margin-bottom:14px">${rows}</div>
-    <div id="bk-summary" style="font-size:12px;font-weight:700;color:var(--navy);background:var(--blue-l);border:1px solid var(--border);border-radius:var(--rs);padding:8px 12px;margin-bottom:14px;display:flex;align-items:center;gap:6px">
-      <i class="ti ti-info-circle"></i> <span id="bk-summary-text"></span>
-    </div>
+    <label style="font-size:12px;font-weight:600;color:var(--text2);display:block;margin-bottom:6px">DATA SOURCE NAME</label>
+    <input type="text" id="bk-source-name" value="${String(defaultName).replace(/"/g,'&quot;')}" style="width:100%;font-size:14px;padding:9px 12px;margin-bottom:14px" onkeydown="if(event.key==='Enter')_doFinalizeImport()">
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="primary" onclick="_doFinalizeImport()" id="bk-confirm-btn"><i class="ti ti-file-import"></i> Keep selected &amp; Import</button>
-      <button onclick="_doFinalizeImportFresh()" style="background:var(--red-l);color:var(--red);border-color:#f0c0c0"><i class="ti ti-refresh-alert"></i> Import fresh (discard all)</button>
+      <button class="primary" onclick="_doFinalizeImport()"><i class="ti ti-file-import"></i> Import as new data source</button>
       <button onclick="closeModal('upload-backup-modal')"><i class="ti ti-x"></i> Cancel</button>
     </div>`;
-  _updateBackupCount(newCount);
-}
-
-function _updateBackupCount(newCount){
-  let keepCount=0;
-  document.querySelectorAll('[id^="bk-"]').forEach(cb=>{
-    if(cb.type==='checkbox'&&cb.checked){
-      const s=cb.id.replace('bk-','').replace(/_/g,' ');
-      keepCount+=customers.filter(c=>c.status===s).length;
-    }
-  });
-  const el=document.getElementById('bk-summary-text');
-  const btn=document.getElementById('bk-confirm-btn');
-  const nc=newCount||(_pendingImport?_pendingImport.newC.length:0);
-  if(keepCount>0){
-    // Estimate deduplicated new count
-    const keptPhones=new Set();
-    document.querySelectorAll('[id^="bk-"]').forEach(cb=>{
-      if(cb.type==='checkbox'&&cb.checked){
-        const s=cb.id.replace('bk-','').replace(/_/g,' ');
-        customers.filter(c=>c.status===s).forEach(c=>{if(c.phone)keptPhones.add(c.phone);});
-      }
-    });
-    const deduped=_pendingImport?_pendingImport.newC.filter(c=>!c.phone||!keptPhones.has(c.phone)).length:nc;
-    if(el) el.textContent=keepCount+' carried over + '+deduped+' new = '+( keepCount+deduped)+' total after import';
-    if(btn) btn.disabled=false;
-  } else {
-    if(el) el.textContent='Nothing selected — import will replace all '+nc+' new records';
-    if(btn) btn.disabled=false;
-  }
+  openModal('upload-backup-modal');
+  setTimeout(()=>{const el=document.getElementById('bk-source-name');if(el){el.focus();el.select();}},100);
 }
 
 function _doFinalizeImport(){
-  const keepStatuses=[];
-  document.querySelectorAll('[id^="bk-"]').forEach(cb=>{
-    if(cb.type==='checkbox'&&cb.checked) keepStatuses.push(cb.id.replace('bk-','').replace(/_/g,' '));
-  });
+  const nameInp=document.getElementById('bk-source-name');
+  const name=(nameInp?.value||'').trim();
   closeModal('upload-backup-modal');
-  if(_pendingImport) _finalizeImport(_pendingImport.newC,keepStatuses,_pendingImport.msg);
+  if(_pendingImport) _finalizeImport(_pendingImport.newC,name,_pendingImport.msg);
   _pendingImport=null;
 }
 
-function _doFinalizeImportFresh(){
-  closeModal('upload-backup-modal');
-  if(_pendingImport) _finalizeImport(_pendingImport.newC,[],_pendingImport.msg);
-  _pendingImport=null;
-}
+async function _finalizeImport(newC,sourceName,msg){
+  if(sourceName) newC.forEach(c=>{c.batchName=sourceName;});
+  customers=[...customers,...newC];
+  save(); // new ids are never in __cloudSnap yet, so save()'s own diff-and-push
+          // (chunked, see _pushCustomersChunked) upserts exactly these rows —
+          // no replaceCustomers here, since nothing else changed and a
+          // replace would incorrectly tombstone every other existing record.
 
-async function _finalizeImport(newC,keepStatuses,msg){
-  // Customers to carry over
-  const kept=keepStatuses.length?customers.filter(c=>keepStatuses.includes(c.status)):[];
-  // Remove duplicates from new list (match by phone number)
-  const keptPhones=new Set(kept.map(c=>c.phone).filter(Boolean));
-  const dedupedNew=newC.filter(c=>!c.phone||!keptPhones.has(c.phone));
-
-  msg.innerHTML='<span style="color:var(--blue)"><i class="ti ti-loader"></i> Archiving old data → pushing to Google Sheet...</span>';
-  const batch=await archiveOldData(customers);
-
-  const merged=[...kept,...dedupedNew];
-  customers=merged;
-
-  // replaceCustomers (below) fully reconciles the cloud copy of every record
-  // in one go, including tombstoning anything dropped — pre-seed the local
-  // dirty-diff snapshot for the genuinely-new rows so save()'s per-record
-  // auto-sync doesn't ALSO queue a second, redundant push right behind it.
-  // (Carried-over "kept" records are untouched by this import, so their
-  // existing snapshot entries — if any — are still accurate as-is.)
-  if(window.__cloudReady) dedupedNew.forEach(c=>{window.__cloudSnap.customers[c.id]=JSON.stringify(c);});
-  save();
-
-  if(window.__cloudReady&&window.CloudSync&&CloudSync.isAuthed){
-    setSyncStatus('saving',merged.length>300?`Syncing ${merged.length} contacts to Google Sheet…`:null);
-    CloudSync.replaceCustomers(merged)
-      .then(()=>{setSyncStatus('saved');showToast(`✓ ${merged.length} contacts synced to Google Sheet`);})
-      .catch(e=>{
-        setSyncStatus('error',e.message);
-        // Push failed — don't leave the new rows falsely marked "synced" or the
-        // per-record auto-sync will never retry them.
-        dedupedNew.forEach(c=>{delete window.__cloudSnap.customers[c.id];});
-        showToast(`✗ Cloud sync failed (${e.message}) — data is saved locally and will retry automatically`,'#A32D2D');
-      });
-  }
-
-  const archMsg=_archMsgFor(batch);
-  const keptBadge=kept.length?` · <span class="badge b-green" style="font-size:9px"><i class="ti ti-user-check" style="font-size:9px"></i> ${kept.length} carried over</span>`:'';
-  const poolNote=dedupedNew.length?` · <span class="badge b-blue" style="font-size:9px"><i class="ti ti-layers-intersect" style="font-size:9px"></i> ${dedupedNew.length} held in master pool — go to <strong>Batches</strong> to release</span>`:'';
-  msg.innerHTML=`<span style="color:#27500A">✓ ${dedupedNew.length} new + ${kept.length} carried over = ${merged.length} total customers.</span>${keptBadge}${poolNote}${archMsg}`;
+  msg.innerHTML=`<span style="color:#27500A">✓ ${newC.length} contact${newC.length>1?'s':''} added as a new data source${sourceName?` — "${sourceName}"`:''}.</span> <span class="badge b-blue" style="font-size:9px"><i class="ti ti-layers-intersect" style="font-size:9px"></i> Go to <strong>Batches</strong> to release them</span>`;
   renderAdmin();renderArchivedBatches();renderBatches();
 }
 
@@ -1861,22 +1772,145 @@ async function _finalizeImport(newC,keepStatuses,msg){
 // (see importFromRowObjects/importFromCSVText) — they sit in this master
 // pool, invisible to every caller, until an admin explicitly releases some
 // or all of a batch to caller(s) below. Releasing = assigning a callerId.
+const _UNTAGGED_BATCH_ID='__untagged__';
+// Embed a JS literal inside an onclick="..." (double-quoted) HTML attribute —
+// JSON.stringify() also uses double quotes for strings, which collides with
+// the attribute's own delimiters and truncates the markup. Use single quotes
+// for strings instead (safe here since these ids never contain one).
+function _jsAttrArg(v){return typeof v==='string'?`'${v.replace(/'/g,"\\'")}'`:String(v);}
+
+// Shared "filter by batch" support for the Admin customer list and Reports —
+// value is the batchId (unique) rather than the batchName (two uploads can
+// share a name), plus a catch-all for records with no batch tag at all.
+const _NO_BATCH_FILTER_VAL='__none__';
+function _batchFilterOptions(){
+  const seen={};
+  customers.forEach(c=>{if(c.batchId&&!seen[c.batchId]) seen[c.batchId]=c.batchName||('Batch '+c.batchId);});
+  const opts=Object.entries(seen).map(([id,name])=>`<option value="${id}">${name}</option>`).join('');
+  const hasNoBatch=customers.some(c=>!c.batchId);
+  return opts+(hasNoBatch?`<option value="${_NO_BATCH_FILTER_VAL}">No batch / legacy</option>`:'');
+}
+function _matchesBatchFilter(c,val){
+  if(!val) return true;
+  if(val===_NO_BATCH_FILTER_VAL) return !c.batchId;
+  return String(c.batchId)===val;
+}
+
+// A contact's data source is the ORIGINAL upload it traces back to, distinct
+// from its current batch — carving a batch out of a pool (createBatchFromPool
+// /createBatchFromAssigned) changes batchId/batchName but never touches
+// dataSourceId/dataSourceName once set, so lineage survives any number of
+// re-carves. Records from before this field existed (or that lost it on an
+// older backend round-trip — same story as the batchId Sheet bug) fall back
+// to their current batchId/batchName, which is exactly their source since
+// they've never been carved.
+function _dataSourceIdOf(c){return c.dataSourceId||c.batchId||_UNTAGGED_BATCH_ID;}
+function _dataSourceNameOf(c){return c.dataSourceName||c.batchName||'Unassigned contacts (no batch info)';}
+
 function _batchList(){
   const map={};
   customers.forEach(c=>{
     if(!c.batchId) return;
-    if(!map[c.batchId]) map[c.batchId]={batchId:c.batchId,batchName:c.batchName||('Batch '+c.batchId),uploadedAt:c.uploadedAt||c.batchId,total:0,released:0};
+    if(!map[c.batchId]) map[c.batchId]={batchId:c.batchId,batchName:c.batchName||('Batch '+c.batchId),uploadedAt:c.uploadedAt||c.batchId,dataSourceId:_dataSourceIdOf(c),dataSourceName:_dataSourceNameOf(c),total:0,released:0,called:0,archived:0};
     map[c.batchId].total++;
-    if(c.callerId) map[c.batchId].released++;
+    if(c.callerId){
+      map[c.batchId].released++;
+      if(c.status!=='Not Called') map[c.batchId].called++;
+      if(c.archived) map[c.batchId].archived++;
+    }
   });
-  return Object.values(map).sort((a,b)=>b.uploadedAt-a.uploadedAt);
+  const list=Object.values(map);
+  // Fallback for contacts that are unassigned but have no batch tag at all
+  // (e.g. uploaded while an older backend deploy was silently dropping the
+  // batchId/batchName fields on the Sheet round-trip). Still safely
+  // releasable/nameable through the same controlled flow — it just can't
+  // say which upload they came from.
+  const untagged=customers.filter(c=>!c.batchId&&!c.callerId);
+  if(untagged.length){
+    list.push({batchId:_UNTAGGED_BATCH_ID,batchName:'Unassigned contacts (no batch info)',uploadedAt:0,dataSourceId:_UNTAGGED_BATCH_ID,dataSourceName:'Unassigned contacts (no batch info)',total:untagged.length,released:0,called:0,archived:0});
+  }
+  return list.sort((a,b)=>b.uploadedAt-a.uploadedAt);
+}
+
+// Every distinct data source currently referenced by any batch or pool —
+// powers the Batches page's "Filter by data source" dropdown.
+function _dataSourceOptions(){
+  const seen={};
+  _batchList().forEach(b=>{if(!seen[b.dataSourceId]) seen[b.dataSourceId]=b.dataSourceName;});
+  _untaggedAssignedPool().forEach(c=>{const id=_dataSourceIdOf(c);if(!seen[id]) seen[id]=_dataSourceNameOf(c);});
+  return Object.entries(seen).map(([id,name])=>`<option value="${id}">${name}</option>`).join('');
+}
+
+// Selects the still-pending pool for a given card, whether it's a real
+// named batch or the untagged catch-all — shared by release and by
+// carving a new named batch out of that pool.
+function _pendingForBatch(batchId){
+  // batchId may arrive as a string (e.g. straight from a <select>.value,
+  // which is always a string) while customers[i].batchId is a number
+  // (Date.now()) — compare as strings so both call shapes work.
+  return (String(batchId)===_UNTAGGED_BATCH_ID
+    ? customers.filter(c=>!c.batchId&&!c.callerId)
+    : customers.filter(c=>String(c.batchId)===String(batchId)&&!c.callerId)
+  ).sort((a,b)=>a.id-b.id);
+}
+
+function viewBatchReport(batchId){
+  showPage('reports');
+  renderReports(batchId);
+}
+
+// Contacts that are already assigned to a caller — called or not — but were
+// never part of any batch (legacy data, or assigned some other way before a
+// batch existed for them). They're fully visible/callable in the caller's
+// queue, but admin has no batch to manage or eventually close them by.
+// Group them into a new named batch to bring them into the same flow as
+// everything else.
+function _untaggedAssignedPool(callerId){
+  return customers.filter(c=>c.callerId&&!c.batchId&&!c.archived&&(!callerId||c.callerId===callerId))
+    .sort((a,b)=>a.id-b.id);
+}
+
+function createBatchFromAssigned(count,newName,callerId){
+  const name=(newName||'').trim();
+  if(!name){showToast('Give the new batch a name','#A32D2D');return;}
+  const pool=_untaggedAssignedPool(callerId);
+  const n=Math.max(0,Math.min(count||0,pool.length));
+  if(!n){showToast('Nothing to group — no untagged assigned contacts match this','#A32D2D');return;}
+  const newBatchId=Date.now();
+  for(let i=0;i<n;i++){
+    // Capture the current batch as this record's data source the first
+    // time it's carved — never overwrite it on any later re-carve.
+    if(!pool[i].dataSourceId){pool[i].dataSourceId=_dataSourceIdOf(pool[i]);pool[i].dataSourceName=_dataSourceNameOf(pool[i]);}
+    pool[i].batchId=newBatchId;
+    pool[i].batchName=name;
+    pool[i].uploadedAt=newBatchId;
+  }
+  save();
+  showToast(`Created batch "${name}" with ${n} contact${n>1?'s':''} — close it below once they're worked`);
+  renderBatches();
+  if(currentRole==='admin') adminFilter();
+}
+
+function _onCalledCallerChange(){
+  const callerId=document.getElementById('called-caller').value;
+  const n=_untaggedAssignedPool(callerId).length;
+  const countInp=document.getElementById('called-count');
+  if(countInp){countInp.max=n;countInp.value=n;}
+}
+
+function _doCreateBatchFromCalled(){
+  const countInp=document.getElementById('called-count');
+  const nameInp=document.getElementById('called-name');
+  const callerSel=document.getElementById('called-caller');
+  const count=parseInt(countInp.value,10)||0;
+  createBatchFromAssigned(count,nameInp.value,callerSel.value);
 }
 
 function releaseBatch(batchId,count,mode,singleCallerId){
   const active=callers.filter(c=>c.active);
   if(!active.length){showToast('No active callers!','#A32D2D');return;}
   if(mode==='single'&&!singleCallerId){showToast('Pick a caller to release to','#A32D2D');return;}
-  const pending=customers.filter(c=>c.batchId===batchId&&!c.callerId).sort((a,b)=>a.id-b.id);
+  const pending=_pendingForBatch(batchId);
   const n=Math.max(0,Math.min(count||0,pending.length));
   if(!n){showToast('Nothing to release','#A32D2D');return;}
   for(let i=0;i<n;i++){
@@ -1886,6 +1920,88 @@ function releaseBatch(batchId,count,mode,singleCallerId){
   showToast(`Released ${n} contact${n>1?'s':''}`+(mode==='single'?' to '+callerName(singleCallerId):' across '+active.length+' caller'+(active.length>1?'s':'')));
   renderBatches();
   if(currentRole==='admin') adminFilter();
+}
+
+// Carve a named batch out of a source pool (a real upload, or the untagged
+// catch-all) without releasing it yet — gives admin a deliberate naming
+// step instead of every upload becoming one anonymous release target.
+function createBatchFromPool(sourceBatchId,count,newName){
+  const name=(newName||'').trim();
+  if(!name){showToast('Give the new batch a name','#A32D2D');return;}
+  const pending=_pendingForBatch(sourceBatchId);
+  const n=Math.max(0,Math.min(count||0,pending.length));
+  if(!n){showToast('Nothing to carve out of this pool','#A32D2D');return;}
+  const newBatchId=Date.now();
+  for(let i=0;i<n;i++){
+    if(!pending[i].dataSourceId){pending[i].dataSourceId=_dataSourceIdOf(pending[i]);pending[i].dataSourceName=_dataSourceNameOf(pending[i]);}
+    pending[i].batchId=newBatchId;
+    pending[i].batchName=name;
+    pending[i].uploadedAt=newBatchId;
+  }
+  save();
+  showToast(`Created batch "${name}" with ${n} contact${n>1?'s':''} — release it below`);
+  renderBatches();
+}
+
+// Retires a batch's released contacts from the caller's live queue (call
+// history/status is untouched — this only hides it from _buildCallerBase).
+// Reopen undoes it. Admin still sees archived rows everywhere.
+function closeBatch(batchId){
+  const released=(batchId===_UNTAGGED_BATCH_ID
+    ? customers.filter(c=>!c.batchId&&c.callerId&&!c.archived)
+    : customers.filter(c=>c.batchId===batchId&&c.callerId&&!c.archived));
+  if(!released.length){showToast('Nothing to close','#A32D2D');return;}
+  const notCalled=released.filter(c=>c.status==='Not Called').length;
+  if(notCalled>0&&!confirm(`${notCalled} of ${released.length} released contact${released.length>1?'s':''} in this batch haven't been called yet. Remove them from the caller's queue anyway?`)) return;
+  released.forEach(c=>{c.archived=true;});
+  save();
+  showToast(`Closed batch — ${released.length} contact${released.length>1?'s':''} removed from the caller's view`);
+  renderBatches();
+  if(currentRole==='admin') adminFilter();
+}
+
+function reopenBatch(batchId){
+  const archived=(batchId===_UNTAGGED_BATCH_ID
+    ? customers.filter(c=>!c.batchId&&c.archived)
+    : customers.filter(c=>c.batchId===batchId&&c.archived));
+  if(!archived.length){showToast('Nothing to reopen','#A32D2D');return;}
+  archived.forEach(c=>{c.archived=false;});
+  save();
+  showToast(`Reopened batch — ${archived.length} contact${archived.length>1?'s':''} back in the caller's view`);
+  renderBatches();
+  if(currentRole==='admin') adminFilter();
+}
+
+// The still-active (released, not archived/closed) contacts of a batch —
+// the pool that reassignBatch moves between callers.
+function _releasedForBatch(batchId){
+  return (String(batchId)===_UNTAGGED_BATCH_ID
+    ? customers.filter(c=>!c.batchId&&c.callerId&&!c.archived)
+    : customers.filter(c=>String(c.batchId)===String(batchId)&&c.callerId&&!c.archived)
+  ).sort((a,b)=>a.id-b.id);
+}
+
+// Moves a batch (or a portion of it) from whichever caller(s) currently
+// hold it to a different, single caller — e.g. a caller goes on leave, or
+// workload needs rebalancing mid-batch. Doesn't touch call history/status,
+// just re-points callerId, same as a release.
+function reassignBatch(batchId,count,newCallerId){
+  if(!newCallerId){showToast('Pick a caller to reassign to','#A32D2D');return;}
+  const held=_releasedForBatch(batchId).filter(c=>c.callerId!==newCallerId);
+  const n=Math.max(0,Math.min(count||0,held.length));
+  if(!n){showToast('Nothing to reassign — already all with that caller, or nothing released yet','#A32D2D');return;}
+  for(let i=0;i<n;i++) held[i].callerId=newCallerId;
+  save();
+  showToast(`Reassigned ${n} contact${n>1?'s':''} to ${callerName(newCallerId)}`);
+  renderBatches();
+  if(currentRole==='admin') adminFilter();
+}
+
+function _doReassignBatch(batchId){
+  const countInp=document.getElementById('reassign-count-'+batchId);
+  const callerSel=document.getElementById('reassign-caller-'+batchId);
+  const count=parseInt(countInp.value,10)||0;
+  reassignBatch(batchId,count,callerSel.value);
 }
 
 function _toggleReleaseCallerSelect(batchId){
@@ -1902,48 +2018,147 @@ function _doReleaseBatch(batchId){
   releaseBatch(batchId,count,mode,mode==='single'?callerSel.value:null);
 }
 
+function _doCreateBatch(sourceBatchId){
+  const countInp=document.getElementById('newb-count-'+sourceBatchId);
+  const nameInp=document.getElementById('newb-name-'+sourceBatchId);
+  const count=parseInt(countInp.value,10)||0;
+  createBatchFromPool(sourceBatchId,count,nameInp.value);
+}
+
+let _batchSourceFilter='';
+function _onBatchSourceFilterChange(){
+  _batchSourceFilter=document.getElementById('batch-source-filter').value;
+  renderBatches();
+}
+
 function renderBatches(){
   const el=document.getElementById('page-batches');
   if(!el) return;
-  const batches=_batchList();
+  const allBatches=_batchList();
+  const batches=_batchSourceFilter?allBatches.filter(b=>String(b.dataSourceId)===_batchSourceFilter):allBatches;
   const activeCallers=callers.filter(c=>c.active);
-  if(!batches.length){
-    el.innerHTML=`<div class="card"><div style="text-align:center;padding:40px 20px;color:var(--text2)"><i class="ti ti-layers-intersect" style="font-size:36px;display:block;margin-bottom:8px"></i><div style="font-weight:600">No master batches yet</div><div style="font-size:12px;margin-top:4px">Upload a file from the Admin page — it lands here as a batch you release to callers when ready.</div></div></div>`;
+  const untaggedAssigned=_untaggedAssignedPool();
+  const untaggedCalledCount=untaggedAssigned.filter(c=>c.status!=='Not Called').length;
+  const untaggedPendingCount=untaggedAssigned.length-untaggedCalledCount;
+  const sourceOptions=_dataSourceOptions();
+
+  const intro=`<div class="card" style="margin-bottom:14px">
+    <div class="card-title">Master data batches</div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:${sourceOptions?'12px':'0'}">Uploaded contacts sit here, invisible to every caller, until you release them. Release a batch fully or a portion at a time — round-robin across active callers, or hand the whole slice to one caller.</div>
+    ${sourceOptions?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.04em">FILTER BY DATA SOURCE</label>
+      <select id="batch-source-filter" onchange="_onBatchSourceFilterChange()" style="font-size:12px;padding:6px 8px">
+        <option value="">All data sources (${allBatches.length} batch${allBatches.length!==1?'es':''})</option>
+        ${sourceOptions}
+      </select>
+    </div>`:''}
+  </div>`;
+
+  const organizeCard=untaggedAssigned.length?`<div class="card" style="margin-bottom:14px">
+    <div class="card-title">Organize untagged contacts into a batch</div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:10px">
+      <strong style="color:var(--text)">${untaggedAssigned.length} assigned contact${untaggedAssigned.length>1?'s':''}</strong> aren't part of any batch (legacy data, or assigned before batches existed) — ${untaggedCalledCount} already called, ${untaggedPendingCount} still not called. They're fully visible in the caller's queue either way, but there's no batch to track or eventually "Close batch" on. Group them here first.
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input type="text" id="called-name" placeholder="New batch name" style="flex:1;min-width:140px;font-size:12px;padding:6px 8px">
+      <input type="number" id="called-count" value="${untaggedAssigned.length}" min="1" max="${untaggedAssigned.length}" style="width:80px;font-size:12px;padding:6px 8px">
+      <select id="called-caller" onchange="_onCalledCallerChange()" style="font-size:12px;padding:6px 8px">
+        <option value="">Any caller</option>
+        ${callers.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}
+      </select>
+      <button onclick="_doCreateBatchFromCalled()" style="font-size:12px;padding:6px 12px"><i class="ti ti-scissors"></i> Create batch</button>
+    </div>
+  </div>`:'';
+
+  if(!allBatches.length){
+    el.innerHTML=intro+organizeCard+`<div class="card"><div style="text-align:center;padding:40px 20px;color:var(--text2)"><i class="ti ti-layers-intersect" style="font-size:36px;display:block;margin-bottom:8px"></i><div style="font-weight:600">No master batches yet</div><div style="font-size:12px;margin-top:4px">Upload a file from the Admin page — it lands here as a batch you release to callers when ready.</div></div></div>`;
+    _restoreBatchSourceFilter();
     return;
   }
-  el.innerHTML=`<div class="card" style="margin-bottom:14px">
-    <div class="card-title">Master data batches</div>
-    <div style="font-size:12px;color:var(--text2);line-height:1.6">Uploaded contacts sit here, invisible to every caller, until you release them. Release a batch fully or a portion at a time — round-robin across active callers, or hand the whole slice to one caller.</div>
-  </div>`
+  if(!batches.length){
+    el.innerHTML=intro+organizeCard+`<div class="card"><div style="text-align:center;padding:30px 20px;color:var(--text2)"><i class="ti ti-filter-off" style="font-size:32px;display:block;margin-bottom:8px"></i><div style="font-weight:600">No batches from this data source</div><div style="font-size:12px;margin-top:4px">Try a different filter above.</div></div></div>`;
+    _restoreBatchSourceFilter();
+    return;
+  }
+  el.innerHTML=intro+organizeCard
   +batches.map(b=>{
     const pending=b.total-b.released;
     const pct=b.total?Math.round(b.released/b.total*100):0;
+    const callPct=b.released?Math.round(b.called/b.released*100):0;
+    const batchComplete=b.released>0&&pending===0&&b.called===b.released;
+    const fullyClosed=b.released>0&&b.archived===b.released;
+    const partlyClosed=b.archived>0&&b.archived<b.released;
+    const activeReleased=b.released-b.archived;
     return `<div class="card" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px">
         <div>
           <div style="font-weight:700;font-size:14px">${b.batchName}</div>
           <div style="font-size:11px;color:var(--text2)">Uploaded ${fmtUpload(b.uploadedAt)} · ${b.total} contact${b.total>1?'s':''}</div>
         </div>
-        <span class="badge ${pending===0?'b-green':'b-amber'}" style="font-size:10px">${pending===0?'Fully released':pending+' pending release'}</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+          ${fullyClosed?'<span class="badge" style="font-size:10px;background:#EEEDFE;color:#534AB7"><i class="ti ti-lock" style="font-size:9px"></i> Closed — hidden from caller</span>':''}
+          <span class="badge ${pending===0?'b-green':'b-amber'}" style="font-size:10px">${pending===0?'Fully released':pending+' pending release'}</span>
+        </div>
       </div>
       <div class="prog-bg" style="margin-bottom:10px"><div class="prog-f" style="width:${pct}%;background:var(--green)"></div></div>
       <div style="font-size:11px;color:var(--text2);margin-bottom:10px">${b.released} released · ${pending} still in master pool</div>
-      ${pending>0?`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <input type="number" id="rel-count-${b.batchId}" value="${pending}" min="1" max="${pending}" style="width:80px;font-size:12px;padding:6px 8px">
-        <select id="rel-mode-${b.batchId}" onchange="_toggleReleaseCallerSelect(${b.batchId})" style="font-size:12px;padding:6px 8px">
-          <option value="roundrobin">Round-robin (all active callers)</option>
-          <option value="single">Specific caller</option>
-        </select>
-        <select id="rel-caller-${b.batchId}" style="font-size:12px;padding:6px 8px;display:none">${activeCallers.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select>
-        <button class="primary" onclick="_doReleaseBatch(${b.batchId})"><i class="ti ti-send"></i> Release</button>
+      ${b.released>0?`<div style="border-top:1px solid var(--border);padding-top:10px;margin-bottom:${pending>0?'10px':'0'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.04em">CALL PROGRESS ON RELEASED CONTACTS</span>
+          ${batchComplete?'<span class="badge b-green" style="font-size:9px"><i class="ti ti-circle-check" style="font-size:9px"></i> Batch complete</span>':''}
+        </div>
+        <div class="prog-bg" style="margin-bottom:8px"><div class="prog-f" style="width:${callPct}%;background:${batchComplete?'var(--green)':'var(--blue)'}"></div></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <span style="font-size:11px;color:var(--text2)">${b.called}/${b.released} called (${callPct}%)${partlyClosed?` · ${b.archived} already closed`:''}</span>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button onclick="viewBatchReport(${_jsAttrArg(b.batchId)})" style="font-size:11px;padding:5px 10px"><i class="ti ti-chart-bar"></i> View report</button>
+            ${fullyClosed
+              ?`<button onclick="reopenBatch(${_jsAttrArg(b.batchId)})" style="font-size:11px;padding:5px 10px"><i class="ti ti-lock-open"></i> Reopen</button>`
+              :`<button onclick="closeBatch(${_jsAttrArg(b.batchId)})" style="font-size:11px;padding:5px 10px;background:var(--purple-l);color:var(--purple);border-color:#bfb9e8"><i class="ti ti-lock"></i> Close batch</button>`}
+          </div>
+        </div>
+        ${activeReleased>0&&activeCallers.length>1?`<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
+          <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.04em;margin-bottom:6px">REASSIGN TO A DIFFERENT CALLER</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="number" id="reassign-count-${b.batchId}" value="${activeReleased}" min="1" max="${activeReleased}" style="width:80px;font-size:12px;padding:6px 8px">
+            <select id="reassign-caller-${b.batchId}" style="font-size:12px;padding:6px 8px">${activeCallers.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select>
+            <button onclick="_doReassignBatch(${_jsAttrArg(b.batchId)})" style="font-size:12px;padding:6px 12px"><i class="ti ti-arrows-right-left"></i> Reassign</button>
+          </div>
+        </div>`:''}
+      </div>`:''}
+      ${pending>0?`<div style="border-top:1px solid var(--border);padding-top:10px">
+        <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.04em;margin-bottom:6px">CARVE OUT A NAMED BATCH (optional)</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <input type="text" id="newb-name-${b.batchId}" placeholder="New batch name" style="flex:1;min-width:140px;font-size:12px;padding:6px 8px">
+          <input type="number" id="newb-count-${b.batchId}" value="${pending}" min="1" max="${pending}" style="width:80px;font-size:12px;padding:6px 8px">
+          <button onclick="_doCreateBatch(${_jsAttrArg(b.batchId)})" style="font-size:12px;padding:6px 12px"><i class="ti ti-scissors"></i> Create batch</button>
+        </div>
+        <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.04em;margin-bottom:6px">OR RELEASE DIRECTLY</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input type="number" id="rel-count-${b.batchId}" value="${pending}" min="1" max="${pending}" style="width:80px;font-size:12px;padding:6px 8px">
+          <select id="rel-mode-${b.batchId}" onchange="_toggleReleaseCallerSelect(${_jsAttrArg(b.batchId)})" style="font-size:12px;padding:6px 8px">
+            <option value="roundrobin">Round-robin (all active callers)</option>
+            <option value="single">Specific caller</option>
+          </select>
+          <select id="rel-caller-${b.batchId}" style="font-size:12px;padding:6px 8px;display:none">${activeCallers.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select>
+          <button class="primary" onclick="_doReleaseBatch(${_jsAttrArg(b.batchId)})"><i class="ti ti-send"></i> Release</button>
+        </div>
       </div>`:''}
     </div>`;
   }).join('');
+  _restoreBatchSourceFilter();
+}
+
+function _restoreBatchSourceFilter(){
+  const sel=document.getElementById('batch-source-filter');
+  if(sel) sel.value=_batchSourceFilter||'';
 }
 
 // ── ASSIGN MODAL ───────────────────────────────────────────────────
 function renderAssignModal(){
   _assignMode='manual';
+  _assignScope='';
+  _populateAssignScope();
   _renderAssignPoolNote();
   document.getElementById('assign-body').innerHTML=`<div style="font-size:13px;color:var(--text);line-height:1.6;padding:12px;background:#fafbfd;border:1px solid var(--border);border-radius:var(--rs);margin-top:8px">Pick a method:
     <ul style="margin:6px 0 0 18px;padding:0">
@@ -1954,18 +2169,42 @@ function renderAssignModal(){
   </div>`;
 }
 
-// These tools only ever touch _assignablePool() (see its definition below) —
-// anything still sitting unreleased in a master batch is invisible to them
-// on purpose. Say so explicitly, since silently doing less than the admin
-// expects (e.g. "assigned 300" when 7769 more were just uploaded) reads as
-// the feature being broken rather than working as designed.
+// SCOPE dropdown: "Already active contacts" (default — reassigns customers
+// that already have a caller, unchanged from before) or a specific batch's
+// still-pending pool (turns Auto/%/Manual into a release mechanism for that
+// batch, alongside the simpler round-robin/single-caller release on Batches).
+function _populateAssignScope(){
+  const sel=document.getElementById('assign-scope');
+  if(!sel) return;
+  const pendingBatches=_batchList().filter(b=>b.total-b.released>0);
+  sel.innerHTML='<option value="">Already active contacts</option>'
+    +pendingBatches.map(b=>`<option value="${b.batchId}">Batch: ${b.batchName} (${b.total-b.released} pending)</option>`).join('');
+  sel.value=_assignScope||'';
+}
+
+function _onAssignScopeChange(){
+  _assignScope=document.getElementById('assign-scope').value;
+  _renderAssignPoolNote();
+  // Refresh whichever method view is open so row counts/estimates reflect the new scope
+  if(_assignMode==='percent') renderPercentAssign();
+  else if(_assignMode==='manual'&&document.getElementById('assign-body').querySelector('table')) renderManualAssign();
+}
+
+// These tools only ever touch _assignTargetPool() — when scoped to "Already
+// active contacts" (the default), anything still sitting unreleased in a
+// master batch is invisible to them on purpose. Say so explicitly, since
+// silently doing less than the admin expects (e.g. "assigned 300" when
+// 7769 more were just uploaded) reads as the feature being broken rather
+// than working as designed. When a specific batch is picked as the scope
+// instead, these tools ARE the release mechanism for it, so no warning.
 function _renderAssignPoolNote(){
   const el=document.getElementById('assign-pool-note');
   if(!el) return;
+  if(_assignScope){el.innerHTML='';return;}
   const poolCount=customers.length-_assignablePool().length;
   el.innerHTML=poolCount?`<div style="font-size:12px;line-height:1.5;color:#854F0B;background:#FAEEDA;border:1px solid #f0c070;border-radius:var(--rs);padding:9px 12px;margin-bottom:10px;display:flex;align-items:flex-start;gap:8px">
     <i class="ti ti-alert-triangle" style="flex-shrink:0;margin-top:1px"></i>
-    <div><strong>${poolCount} contact${poolCount>1?'s are':' is'} still in the master pool</strong> and won't be touched by these tools — they only assign contacts that are already active. Release batches from <a href="javascript:void(0)" onclick="closeModal('assign-modal');showPage('batches')" style="color:#854F0B;font-weight:700;text-decoration:underline">Batches</a> first.</div>
+    <div><strong>${poolCount} contact${poolCount>1?'s are':' is'} still in the master pool</strong> and won't be touched by these tools — pick a batch above from SCOPE to assign from it directly, or release batches from <a href="javascript:void(0)" onclick="closeModal('assign-modal');showPage('batches')" style="color:#854F0B;font-weight:700;text-decoration:underline">Batches</a> first.</div>
   </div>`:'';
 }
 
@@ -1974,18 +2213,37 @@ function _renderAssignPoolNote(){
 // "Auto-assign evenly" etc. would silently release an entire master batch at
 // once, defeating the point of Batches (release) as the gate. Use the
 // Batches page to move contacts out of the pool first.
-function _assignablePool(){return customers.filter(c=>!(c.batchId&&!c.callerId));}
+// "Pending release" = no caller assigned, full stop — not just batch-tagged
+// ones. Every code path that creates a customer either assigns a caller
+// immediately or leaves it blank specifically because it's meant to sit in
+// the pool (see importFromRowObjects/importFromCSVText), so an empty
+// callerId always means "not released yet," whether or not it still carries
+// its batchId (a Sheet round-trip can drop that tag — see Batches' untagged
+// fallback). Keying this off batchId alone let de-tagged records quietly
+// re-appear as "active" on the dashboard while Batches still (correctly)
+// showed them as pending — same data, two contradictory numbers.
+function _assignablePool(){return customers.filter(c=>!!c.callerId);}
 function _poolCaveat(){const n=customers.length-_assignablePool().length;return n?` (${n} more still in the master pool — release from Batches)`:'';}
+
+// Which pool Auto-assign/%/Manual operate on: either the default "already
+// active contacts" (existing behaviour, untouched), or — when the admin
+// picks a specific batch from the SCOPE dropdown — that batch's still-
+// pending contacts, i.e. these tools double as a more flexible release
+// path (percentage splits, manual per-contact picks) alongside the plain
+// round-robin/single-caller release on the Batches page.
+let _assignScope='';
+function _assignTargetPool(){return _assignScope?_pendingForBatch(_assignScope):_assignablePool();}
 
 function autoAssign(){
   try{
     _assignMode='auto';
     const active=callers.filter(c=>c.active);
     if(!active.length){showToast('No active callers!','#A32D2D');return;}
-    const pool=_assignablePool();
+    const pool=_assignTargetPool();
+    if(!pool.length){showToast('Nothing to assign in this scope','#A32D2D');return;}
     pool.forEach((c,i)=>c.callerId=active[i%active.length].id);
-    save();showToast(`Auto-assigned ${pool.length} contacts across ${active.length} callers`+_poolCaveat());
-    closeModal('assign-modal');adminFilter();
+    save();showToast(`Auto-assigned ${pool.length} contacts across ${active.length} callers`+(_assignScope?'':_poolCaveat()));
+    closeModal('assign-modal');adminFilter();renderBatches();
   }catch(e){
     console.error('[autoAssign]',e);
     showToast(`✗ Auto-assign failed: ${e.message} — nothing was saved`,'#A32D2D');
@@ -1995,7 +2253,7 @@ function autoAssign(){
 function renderManualAssign(){
   _assignMode='manual';
   const body=document.getElementById('assign-body');
-  const pool=_assignablePool();
+  const pool=_assignTargetPool();
   body.innerHTML=`<div style="max-height:340px;overflow-y:auto;margin-top:12px">
   <table class="tbl">
     <thead><tr><th>Customer</th><th>Company</th><th>Assign to</th></tr></thead>
@@ -2088,7 +2346,7 @@ function recomputePctEstimates(){
     else {warnEl.style.display='block';warnEl.innerHTML=`<span style="color:var(--amber)"><i class="ti ti-alert-triangle"></i> Total is ${total}% — short by ${100-total}. Increase shares or click "Normalize to 100%".</span>`;}
   }
   // live row estimates (largest-remainder) — matches applyPercentAssign's pool
-  const counts=_largestRemainder(_assignablePool().length,pct);
+  const counts=_largestRemainder(_assignTargetPool().length,pct);
   Object.entries(counts).forEach(([id,n])=>{
     const el=document.getElementById('pct-est-'+id);
     if(el) el.textContent=`≈ ${n} row${n===1?'':'s'}`;
@@ -2149,7 +2407,8 @@ function applyPercentAssign(){
     }
     const finalPct=_readPct();
     saveState('assign_pct',finalPct);
-    const pool=_assignablePool();
+    const pool=_assignTargetPool();
+    if(!pool.length){showToast('Nothing to assign in this scope','#A32D2D');return;}
     const counts=_largestRemainder(pool.length,finalPct);
     // Shuffle customer order so it's randomized, not just the first N to caller A
     const order=[...pool];
@@ -2165,8 +2424,8 @@ function applyPercentAssign(){
     const summary=Object.entries(counts).map(([id,n])=>{
       const cal=callers.find(c=>c.id===id);return `${cal?cal.name:id}: ${n} (${finalPct[id]}%)`;
     }).join(' · ');
-    showToast(`Allocated by %: ${summary}`+_poolCaveat());
-    closeModal('assign-modal');adminFilter();
+    showToast(`Allocated by %: ${summary}`+(_assignScope?'':_poolCaveat()));
+    closeModal('assign-modal');adminFilter();renderBatches();
   }catch(e){
     console.error('[applyPercentAssign]',e);
     showToast(`✗ Assign by % failed: ${e.message} — nothing was saved`,'#A32D2D');
@@ -2180,7 +2439,7 @@ function saveAssignments(){
       const el=document.getElementById('as-'+c.id);
       if(el) c.callerId=el.value;
     });
-    save();showToast('Assignments saved'+_poolCaveat());closeModal('assign-modal');adminFilter();
+    save();showToast('Assignments saved'+(_assignScope?'':_poolCaveat()));closeModal('assign-modal');adminFilter();renderBatches();
   }catch(e){
     console.error('[saveAssignments]',e);
     showToast(`✗ Save failed: ${e.message}`,'#A32D2D');
@@ -2345,7 +2604,11 @@ function _safeRenderCallerCards(){
 
 function _buildCallerBase(){
   const allActive=currentRole==='admin';
-  let base=allActive?customers:customers.filter(c=>c.callerId===currentCallerId);
+  // A caller only ever sees their currently-open batch(es) — closeBatch()
+  // marks retired ones `archived` so completed work drops out of the live
+  // queue without deleting the underlying call history. Admin still sees
+  // everything (including archived) for review purposes.
+  let base=allActive?customers:customers.filter(c=>c.callerId===currentCallerId&&!c.archived);
   if(allActive&&_callerFilter.callerId!=='all') base=base.filter(c=>c.callerId===_callerFilter.callerId);
   const q=(document.getElementById('caller-search')?.value||'').toLowerCase().trim();
   if(q) base=base.filter(c=>(c.name||'').toLowerCase().includes(q)||(c.company||'').toLowerCase().includes(q)||String(c.phone||'').includes(q));
@@ -2363,7 +2626,7 @@ function _buildCallerBase(){
 // not whatever's left after a search term happens to be typed in.
 function _buildCallerStatsBase(){
   const allActive=currentRole==='admin';
-  let base=allActive?customers:customers.filter(c=>c.callerId===currentCallerId);
+  let base=allActive?customers:customers.filter(c=>c.callerId===currentCallerId&&!c.archived);
   if(allActive&&_callerFilter.callerId!=='all') base=base.filter(c=>c.callerId===_callerFilter.callerId);
   return base;
 }
@@ -2768,17 +3031,23 @@ Loan product: ${c.loan}`;
 }
 
 // ── REPORTS ────────────────────────────────────────────────────────
-function renderReports(){
+function renderReports(presetBatch){
   const callerOpts=currentRole==='admin'
     ?`<select id="rf-caller" onchange="_applyReportFilter()" style="font-size:12px">
         <option value="">All callers</option>
         ${callers.filter(c=>c.active).map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}
+      </select>`:'';
+  const batchOpts=currentRole==='admin'
+    ?`<select id="rf-batch" onchange="_applyReportFilter()" style="font-size:12px">
+        <option value="">All batches</option>
+        ${_batchFilterOptions()}
       </select>`:'';
   const statusOpts=STATUSES.map(s=>`<option value="${s}">${s}</option>`).join('');
   document.getElementById('page-reports').innerHTML=`
 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);padding:10px 14px">
   <span style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:.06em">FILTER</span>
   ${callerOpts}
+  ${batchOpts}
   <select id="rf-called" onchange="_applyReportFilter()" style="font-size:12px">
     <option value="all">All customers</option>
     <option value="called">Called only</option>
@@ -2792,12 +3061,14 @@ function renderReports(){
   <span id="rf-badge" style="font-size:11px;color:var(--text2);margin-left:auto"></span>
 </div>
 <div id="report-charts"></div>`;
+  if(presetBatch&&document.getElementById('rf-batch')) document.getElementById('rf-batch').value=presetBatch;
   _applyReportFilter();
 }
 
 function _clearReportFilters(){
   const g=id=>document.getElementById(id);
   if(g('rf-caller')) g('rf-caller').value='';
+  if(g('rf-batch')) g('rf-batch').value='';
   if(g('rf-called')) g('rf-called').value='all';
   if(g('rf-status')) g('rf-status').value='';
   _applyReportFilter();
@@ -2810,15 +3081,17 @@ function _applyReportFilter(){
   // since those records have no callerId.
   const base=currentRole==='admin'?_assignablePool():customers.filter(c=>c.callerId===currentCallerId);
   const caller=document.getElementById('rf-caller')?.value||'';
+  const batch=document.getElementById('rf-batch')?.value||'';
   const called=document.getElementById('rf-called')?.value||'all';
   const status=document.getElementById('rf-status')?.value||'';
   let list=base;
   if(caller) list=list.filter(c=>c.callerId===caller);
+  if(batch) list=list.filter(c=>_matchesBatchFilter(c,batch));
   if(called==='called') list=list.filter(c=>c.status!=='Not Called');
   if(called==='notcalled') list=list.filter(c=>c.status==='Not Called');
   if(status) list=list.filter(c=>c.status===status);
   const badge=document.getElementById('rf-badge');
-  const active=[caller,called!=='all'?called:'',status].filter(Boolean).length;
+  const active=[caller,batch,called!=='all'?called:'',status].filter(Boolean).length;
   if(badge) badge.textContent=active?`${active} filter${active>1?'s':''} active · ${list.length} record${list.length!==1?'s':''}`:list.length+' records';
   _renderReportCharts(list);
 }
